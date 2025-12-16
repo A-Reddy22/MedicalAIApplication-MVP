@@ -1,0 +1,18 @@
+# node deps
+node_modules/
+# backend local DB (contains user profiles / PII)
+backend/db.json
+# env / secrets
+.env
+.env.local
+.env.*.local
+# mac / editor / os files
+.DS_Store
+.vscode/
+.idea/
+# lockfiles (optional to commit, but you may keep them)
+# package-lock.json
+# pnpm-lock.yaml
+# local build artifacts
+dist/
+build/

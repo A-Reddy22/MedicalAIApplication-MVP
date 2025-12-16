@@ -1,0 +1,104 @@
+import { useState } from "react";
+import { GraduationCap, User, Target, Calendar, LayoutDashboard, MessageSquare, FileText } from "lucide-react";
+import Dashboard from "./components/Dashboard";
+import ProfileIntake from "./components/ProfileIntake";
+import SchoolMatch from "./components/SchoolMatch";
+import ApplicationTracker from "./components/ApplicationTracker";
+import EssayReview from "./components/EssayReview";
+
+type Page = "dashboard" | "profile" | "schools" | "tracker" | "essay" | "chat";
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
+
+  const navigation = [
+    { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
+    { id: "profile", name: "Your Profile", icon: User },
+    { id: "schools", name: "School Match", icon: Target },
+    { id: "tracker", name: "Application Tracker", icon: Calendar },
+    { id: "essay", name: "Essay Review", icon: FileText },
+    { id: "chat", name: "Chat Agent", icon: MessageSquare },
+  ];
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case "dashboard":
+        return <Dashboard />;
+      case "profile":
+        return <ProfileIntake />;
+      case "schools":
+        return <SchoolMatch />;
+      case "tracker":
+        return <ApplicationTracker />;
+      case "essay":
+        return <EssayReview />;
+      case "chat":
+        return (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <MessageSquare className="w-16 h-16 mx-auto mb-4 text-blue-500" />
+              <h2 className="mb-2">Med School Chat Agent</h2>
+              <p className="text-gray-600">Coming soon - AI-powered admissions Q&A</p>
+            </div>
+          </div>
+        );
+      default:
+        return <Dashboard />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar */}
+      <div className="w-64 bg-white border-r border-gray-200">
+        <div className="p-6">
+          <div className="flex items-center gap-2 mb-8">
+            <GraduationCap className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="font-semibold">MedAdmit AI</h1>
+              <p className="text-xs text-gray-500">Med School Assistant</p>
+            </div>
+          </div>
+
+          <nav className="space-y-1">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentPage === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentPage(item.id as Page)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="text-sm">{item.name}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="absolute bottom-0 w-64 p-6 border-t border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+              <User className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Sarah Chen</p>
+              <p className="text-xs text-gray-500">Pre-Med Student</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto p-8">{renderPage()}</div>
+      </div>
+    </div>
+  );
+}
