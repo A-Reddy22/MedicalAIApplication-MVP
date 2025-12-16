@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Progress } from "./ui/progress";
 import { Calendar, CheckCircle2, Clock, AlertCircle, ExternalLink } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import DeadlineCalendar from "./DeadLineCalender";
 
 interface Application {
   id: number;
@@ -328,20 +329,9 @@ export default function ApplicationTracker() {
           </Card>
 
           {/* Calendar View Placeholder */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Calendar View</CardTitle>
-              <CardDescription>Visual timeline of all deadlines</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                  <p className="text-gray-500">Interactive calendar coming soon</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="col-span-2">
+            <DeadlineCalendar applications={applications} />
+          </div>
         </TabsContent>
       </Tabs>
     </div>
