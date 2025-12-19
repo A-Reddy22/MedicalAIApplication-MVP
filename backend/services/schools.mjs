@@ -8,6 +8,11 @@ function normalizeName(name) {
   return name ? name.toString().trim().toLowerCase() : "";
 }
 
+function toNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 export async function loadSchoolsCsv(fileUrl) {
   const raw = await fs.readFile(fileUrl, "utf8");
   const lines = raw.split(/\r?\n/).filter(Boolean);
@@ -26,8 +31,24 @@ export async function loadSchoolsCsv(fileUrl) {
     const schoolName = obj["school"] || obj["school name"] || obj["schoolname"] || `unknown-${idx}`;
     const schoolId = (obj["school"] || schoolName).toString().trim();
 
-    const mcat50 = Number(obj["mcat p50 (median)"] ?? obj["mcat p50"] ?? obj["mcat p50(median)"] ?? obj["mcat p50 (median)"] ?? 0) || 0;
-    const gpa50 = Number(obj["gpa p50 (median)"] ?? obj["gpa p50"] ?? obj["gpa p50 (median)"] ?? 0) || 0;
+    const gpaPercentiles = [
+      { percentile: 10, value: toNumber(obj["gpa p10"]) },
+      { percentile: 25, value: toNumber(obj["gpa p25"]) },
+      { percentile: 50, value: toNumber(obj["gpa p50 (median)"] ?? obj["gpa p50"] ?? obj["gpa p50 (median)"]) },
+      { percentile: 75, value: toNumber(obj["gpa p75"]) },
+      { percentile: 90, value: toNumber(obj["gpa p90"]) },
+    ];
+
+    const mcatPercentiles = [
+      { percentile: 10, value: toNumber(obj["mcat p10"]) },
+      { percentile: 25, value: toNumber(obj["mcat p25"]) },
+      { percentile: 50, value: toNumber(obj["mcat p50 (median)"] ?? obj["mcat p50"] ?? obj["mcat p50(median)"]) },
+      { percentile: 75, value: toNumber(obj["mcat p75"]) },
+      { percentile: 90, value: toNumber(obj["mcat p90"]) },
+    ];
+
+    const mcat50 = mcatPercentiles.find((p) => p.percentile === 50)?.value ?? 0;
+    const gpa50 = gpaPercentiles.find((p) => p.percentile === 50)?.value ?? 0;
 
     const entry = {
       schoolId: schoolId,
@@ -36,6 +57,8 @@ export async function loadSchoolsCsv(fileUrl) {
       raw: obj,
       mcat50,
       gpa50,
+      gpaPercentiles,
+      mcatPercentiles,
     };
 
     return entry;

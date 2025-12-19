@@ -7,6 +7,7 @@ import { JSONFile } from "lowdb/node";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { loadSchoolsCsv, searchSchools, findSchoolById } from "./services/schools.mjs";
+import { computeMatches, parseProfile } from "./services/match.mjs";
 
 const app = express();
 app.use(helmet());
@@ -89,6 +90,17 @@ app.get("/api/schools/:id", (req, res) => {
   const s = findSchoolById(schoolsData, id);
   if (!s) return res.status(404).json({ error: "not found" });
   res.json({ school: s });
+});
+
+app.post("/api/match", (req, res) => {
+  const profile = parseProfile(req.body?.profile ?? req.body ?? {});
+
+  if (!Number.isFinite(profile.gpa) && !Number.isFinite(profile.mcat)) {
+    return res.status(400).json({ error: "Provide a numeric gpa/cumGPA and/or mcat" });
+  }
+
+  const matches = computeMatches(profile, schoolsData.list, 30);
+  res.json({ matches });
 });
 
 const port = process.env.PORT || 4000;
