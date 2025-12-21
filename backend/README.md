@@ -11,3 +11,6 @@ npm run start
 API endpoints:
 POST /api/profile    -> save profile (JSON body)
 GET  /api/profile/:id -> fetch profile
+GET  /api/profile/user/:userId -> fetch latest profile for a user (plus history)
+
+Profile payload now supports demographics, experiences, and essays in addition to academics so user sessions can persist the full application context.
