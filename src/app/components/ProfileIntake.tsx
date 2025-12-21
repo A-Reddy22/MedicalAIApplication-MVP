@@ -8,22 +8,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Plus, Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { MatchResult, SubmittedProfilePayload } from "../types";
+import {
+  Demographics,
+  Experience,
+  MatchResult,
+  SubmittedProfilePayload,
+} from "../types";
 
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
 }
 
-interface Experience {
-  id: number;
-  type: string;
-  title: string;
-  hours: string;
-  description: string;
-}
-
 export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps) {
   const [name, setName] = useState("");
+  const [userId] = useState("demo-user");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
       id: 1,
@@ -33,20 +31,40 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
       description: "Assisted nursing staff with patient transport and comfort measures...",
     },
   ]);
+  const [demographics, setDemographics] = useState<Demographics>({
+    preferredRegions: [],
+    missionPreferences: [],
+  });
+  const [personalStatement, setPersonalStatement] = useState("");
+
+  const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
+  const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
 
   const addExperience = () => {
-    setExperiences([
-      ...experiences,
+    setExperiences((prev) => [
+      ...prev,
       { id: Date.now(), type: "clinical", title: "", hours: "", description: "" },
     ]);
   };
 
-  const removeExperience = (id: number) => {
-    setExperiences(experiences.filter((exp) => exp.id !== id));
+  const removeExperience = (id: Experience["id"]) => {
+    setExperiences((prev) => prev.filter((exp) => exp.id !== id));
   };
 
-  const updateExperience = (id: number, patch: Partial<Experience>) => {
+  const updateExperience = (id: Experience["id"], patch: Partial<Experience>) => {
     setExperiences((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  };
+
+  const toggleDemographicArray = (field: "preferredRegions" | "missionPreferences", value: string) => {
+    setDemographics((prev) => {
+      const current = new Set(prev[field] ?? []);
+      if (current.has(value)) {
+        current.delete(value);
+      } else {
+        current.add(value);
+      }
+      return { ...prev, [field]: Array.from(current) };
+    });
   };
 
   async function handleSubmit(e: React.FormEvent) {
@@ -62,6 +80,7 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
 
     const payload: SubmittedProfilePayload = {
       name,
+      userId,
       undergrad,
       major,
       cumGPA,
@@ -69,6 +88,10 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
       mcat,
       gradYear,
       experiences,
+      demographics,
+      essays: {
+        personalStatement,
+      },
       updatedAt: new Date().toISOString(),
     };
 
@@ -275,7 +298,10 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Experience Type</Label>
-                      <Select defaultValue={exp.type}>
+                      <Select
+                        value={exp.type}
+                        onValueChange={(value) => updateExperience(exp.id, { type: value })}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -293,7 +319,7 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
                       <Input
                         type="number"
                         placeholder="150"
-                        defaultValue={exp.hours}
+                        value={exp.hours ?? ""}
                         onChange={(e) => updateExperience(exp.id, { hours: e.target.value })}
                       />
                     </div>
@@ -303,7 +329,7 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
                     <Label>Role/Title</Label>
                     <Input
                       placeholder="e.g., Emergency Room Volunteer"
-                      defaultValue={exp.title}
+                      value={exp.title ?? ""}
                       onChange={(e) => updateExperience(exp.id, { title: e.target.value })}
                     />
                   </div>
@@ -314,11 +340,11 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
                       placeholder="Describe your responsibilities, skills learned, and impact..."
                       maxLength={700}
                       rows={4}
-                      defaultValue={exp.description}
+                      value={exp.description ?? ""}
                       onChange={(e) => updateExperience(exp.id, { description: e.target.value })}
                     />
                     <p className="text-xs text-gray-500">
-                      {exp.description.length}/700 characters
+                      {(exp.description?.length ?? 0)}/700 characters
                     </p>
                   </div>
                 </div>
@@ -367,11 +393,20 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="age">Age</Label>
-                  <Input id="age" type="number" placeholder="22" />
+                  <Input
+                    id="age"
+                    type="number"
+                    placeholder="22"
+                    value={demographics.age ?? ""}
+                    onChange={(e) => setDemographics((prev) => ({ ...prev, age: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="state">State of Residence</Label>
-                  <Select>
+                  <Select
+                    value={demographics.state ?? undefined}
+                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, state: value }))}
+                  >
                     <SelectTrigger id="state">
                       <SelectValue placeholder="Select state" />
                     </SelectTrigger>
@@ -388,26 +423,38 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
               <div className="space-y-2">
                 <Label>Preferred Geographic Regions</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {["West Coast", "East Coast", "Midwest", "South", "No Preference"].map(
-                    (region) => (
-                      <Badge key={region} variant="outline" className="cursor-pointer">
+                  {preferredRegionOptions.map((region) => {
+                    const isActive = demographics.preferredRegions?.includes(region);
+                    return (
+                      <Badge
+                        key={region}
+                        variant={isActive ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleDemographicArray("preferredRegions", region)}
+                      >
                         {region}
                       </Badge>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>School Mission Preferences</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"].map(
-                    (mission) => (
-                      <Badge key={mission} variant="outline" className="cursor-pointer">
+                  {missionPreferenceOptions.map((mission) => {
+                    const isActive = demographics.missionPreferences?.includes(mission);
+                    return (
+                      <Badge
+                        key={mission}
+                        variant={isActive ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleDemographicArray("missionPreferences", mission)}
+                      >
                         {mission}
                       </Badge>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>
@@ -426,9 +473,11 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
                 placeholder="Paste your personal statement here for AI analysis..."
                 rows={12}
                 maxLength={5300}
+                value={personalStatement}
+                onChange={(e) => setPersonalStatement(e.target.value)}
               />
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500">0/5,300 characters</p>
+                <p className="text-sm text-gray-500">{personalStatement.length}/5,300 characters</p>
                 <Button type="button">Upload from File</Button>
               </div>
             </CardContent>

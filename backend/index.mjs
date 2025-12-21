@@ -24,15 +24,37 @@ app.use(
   })
 );
 
+const experienceSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  type: z.string().min(1),
+  title: z.string().optional(),
+  hours: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const demographicsSchema = z.object({
+  age: z.string().optional(),
+  state: z.string().optional(),
+  preferredRegions: z.array(z.string()).optional(),
+  missionPreferences: z.array(z.string()).optional(),
+});
+
+const essaysSchema = z.object({
+  personalStatement: z.string().max(5300).optional(),
+});
+
 const schema = z.object({
   name: z.string().min(1).max(200),
+  userId: z.string().optional(),
   undergrad: z.string().optional(),
   major: z.string().optional(),
   cumGPA: z.string().optional(),
   scienceGPA: z.string().optional(),
   mcat: z.string().optional(),
   gradYear: z.string().optional(),
-  experiences: z.array(z.any()).optional(),
+  experiences: z.array(experienceSchema).optional(),
+  demographics: demographicsSchema.optional(),
+  essays: essaysSchema.optional(),
 });
 
 const adapter = new JSONFile(new URL("./db.json", import.meta.url));
@@ -64,7 +86,11 @@ app.post("/api/profile", async (req, res) => {
 
   const profile = {
     id: nanoid(),
+    userId: parse.data.userId ?? null,
     ...parse.data,
+    experiences: parse.data.experiences ?? [],
+    demographics: parse.data.demographics ?? {},
+    essays: parse.data.essays ?? {},
     createdAt: new Date().toISOString(),
   };
 
@@ -80,6 +106,15 @@ app.get("/api/profile/:id", async (req, res) => {
   const p = db.data.profiles.find((x) => x.id === id);
   if (!p) return res.status(404).json({ error: "not found" });
   res.json({ profile: p });
+});
+
+app.get("/api/profile/user/:userId", async (req, res) => {
+  const userId = req.params.userId;
+  await db.read();
+  const userProfiles = db.data.profiles.filter((p) => p.userId === userId);
+  if (!userProfiles.length) return res.status(404).json({ error: "not found" });
+  const latestProfile = userProfiles[userProfiles.length - 1];
+  res.json({ profile: latestProfile, history: userProfiles });
 });
 
 // load schools data
