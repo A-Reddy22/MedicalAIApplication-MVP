@@ -5,11 +5,13 @@ import ProfileIntake from "./components/ProfileIntake";
 import SchoolMatch from "./components/SchoolMatch";
 import ApplicationTracker from "./components/ApplicationTracker";
 import EssayReview from "./components/EssayReview";
+import { MatchResult } from "./types";
 
 type Page = "dashboard" | "profile" | "schools" | "tracker" | "essay" | "chat";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
+  const [matches, setMatches] = useState<MatchResult[]>([]);
 
   const navigation = [
     { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
@@ -25,9 +27,16 @@ export default function App() {
       case "dashboard":
         return <Dashboard />;
       case "profile":
-        return <ProfileIntake />;
+        return (
+          <ProfileIntake
+            onMatchesGenerated={(nextMatches) => {
+              setMatches(nextMatches);
+              setCurrentPage("schools");
+            }}
+          />
+        );
       case "schools":
-        return <SchoolMatch />;
+        return <SchoolMatch matches={matches} />;
       case "tracker":
         return <ApplicationTracker />;
       case "essay":

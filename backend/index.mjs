@@ -42,6 +42,22 @@ await db.read();
 // ensure data is initialized
 db.data ||= defaultData;
 
+const DEFAULT_MATCH_LIMIT = 30;
+
+function coerceLimit(rawLimit, fallback = DEFAULT_MATCH_LIMIT) {
+  const limit = Number.parseInt(rawLimit ?? fallback, 10);
+  return Number.isFinite(limit) && limit > 0 ? limit : fallback;
+}
+
+async function findStoredProfile(profileId) {
+  await db.read();
+  return db.data.profiles.find((p) => p.id === profileId);
+}
+
+function ensureHasNumericScores(profile) {
+  return Number.isFinite(profile.gpa) || Number.isFinite(profile.mcat);
+}
+
 app.post("/api/profile", async (req, res) => {
   const parse = schema.safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.errors });
@@ -92,14 +108,49 @@ app.get("/api/schools/:id", (req, res) => {
   res.json({ school: s });
 });
 
-app.post("/api/match", (req, res) => {
-  const profile = parseProfile(req.body?.profile ?? req.body ?? {});
+app.post("/api/match", async (req, res) => {
+  const safeLimit = coerceLimit(req.body?.limit);
 
-  if (!Number.isFinite(profile.gpa) && !Number.isFinite(profile.mcat)) {
+  let profileInput = req.body?.profile ?? req.body ?? {};
+
+  if (req.body?.profileId) {
+    const stored = await findStoredProfile(req.body.profileId);
+    if (!stored) return res.status(404).json({ error: "profile not found" });
+    profileInput = stored;
+  }
+
+  const profile = parseProfile(profileInput);
+
+  if (!ensureHasNumericScores(profile)) {
     return res.status(400).json({ error: "Provide a numeric gpa/cumGPA and/or mcat" });
   }
 
-  const matches = computeMatches(profile, schoolsData.list, 30);
+  const matches = computeMatches(profile, schoolsData.list, safeLimit);
+  res.json({ matches });
+});
+
+app.get("/api/match", async (req, res) => {
+  const safeLimit = coerceLimit(req.query.limit);
+
+  let profileInput = {
+    gpa: req.query.gpa ?? req.query.cumGPA,
+    mcat: req.query.mcat,
+  };
+
+  const profileId = req.query.profileId?.toString();
+  if (profileId) {
+    const stored = await findStoredProfile(profileId);
+    if (!stored) return res.status(404).json({ error: "profile not found" });
+    profileInput = stored;
+  }
+
+  const profile = parseProfile(profileInput);
+
+  if (!ensureHasNumericScores(profile)) {
+    return res.status(400).json({ error: "Provide a numeric gpa/cumGPA and/or mcat" });
+  }
+
+  const matches = computeMatches(profile, schoolsData.list, safeLimit);
   res.json({ matches });
 });
 
