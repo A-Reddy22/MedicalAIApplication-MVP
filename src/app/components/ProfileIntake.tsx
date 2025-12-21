@@ -8,6 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Plus, Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
+import { MatchResult, SubmittedProfilePayload } from "../types";
+
+interface ProfileIntakeProps {
+  onMatchesGenerated?: (matches: MatchResult[]) => void;
+}
 
 interface Experience {
   id: number;
@@ -17,7 +22,7 @@ interface Experience {
   description: string;
 }
 
-export default function ProfileIntake() {
+export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps) {
   const [name, setName] = useState("");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
@@ -55,7 +60,7 @@ export default function ProfileIntake() {
     const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
     const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
 
-    const payload = {
+    const payload: SubmittedProfilePayload = {
       name,
       undergrad,
       major,
@@ -82,7 +87,24 @@ export default function ProfileIntake() {
       }
 
       const data = await res.json();
-      alert("Profile saved (id: " + (data.id ?? "unknown") + ")");
+      const profileId: string | undefined = data.id;
+      alert("Profile saved (id: " + (profileId ?? "unknown") + ")");
+
+      const matchRes = await fetch("/api/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
+      });
+
+      if (!matchRes.ok) {
+        console.error("Match request failed", await matchRes.text());
+        alert("Profile saved but failed to generate matches.");
+        return;
+      }
+
+      const matchData = await matchRes.json();
+      const matches: MatchResult[] = matchData.matches ?? [];
+      onMatchesGenerated?.(matches);
     } catch (err) {
       console.error(err);
       alert("Network error while saving profile.");
