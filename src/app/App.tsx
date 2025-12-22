@@ -1,17 +1,55 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GraduationCap, User, Target, Calendar, LayoutDashboard, MessageSquare, FileText } from "lucide-react";
 import Dashboard from "./components/Dashboard";
 import ProfileIntake from "./components/ProfileIntake";
 import SchoolMatch from "./components/SchoolMatch";
 import ApplicationTracker from "./components/ApplicationTracker";
 import EssayReview from "./components/EssayReview";
-import { MatchResult } from "./types";
+import { MatchResult, SubmittedProfilePayload } from "./types";
 
 type Page = "dashboard" | "profile" | "schools" | "tracker" | "essay" | "chat";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [matches, setMatches] = useState<MatchResult[]>([]);
+  const [profile, setProfile] = useState<(SubmittedProfilePayload & { id?: string }) | null>(null);
+  const userId = "demo-user";
+
+  useEffect(() => {
+    loadLatestProfile();
+  }, []);
+
+  async function loadLatestProfile() {
+    try {
+      const res = await fetch(`/api/profile/user/${userId}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const savedProfile = data.profile as SubmittedProfilePayload & { id?: string };
+      setProfile(savedProfile);
+
+      if (savedProfile?.id) {
+        await fetchMatchesForProfile(savedProfile.id);
+      }
+    } catch (err) {
+      console.error("Failed to fetch latest profile", err);
+    }
+  }
+
+  async function fetchMatchesForProfile(profileId: string) {
+    try {
+      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
+      if (!res.ok) {
+        console.error("Failed to fetch matches", await res.text());
+        return;
+      }
+
+      const data = await res.json();
+      setMatches(data.matches ?? []);
+    } catch (err) {
+      console.error("Failed to fetch matches", err);
+    }
+  }
 
   const navigation = [
     { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
@@ -25,13 +63,16 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "dashboard":
-        return <Dashboard />;
+        return <Dashboard matches={matches} userName={profile?.name} />;
       case "profile":
         return (
           <ProfileIntake
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
+            }}
+            onProfileSaved={(savedProfile) => {
+              setProfile(savedProfile);
             }}
           />
         );
@@ -52,7 +93,7 @@ export default function App() {
           </div>
         );
       default:
-        return <Dashboard />;
+        return <Dashboard matches={matches} userName={profile?.name} />;
     }
   };
 

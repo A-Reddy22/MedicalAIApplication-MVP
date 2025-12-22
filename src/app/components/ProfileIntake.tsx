@@ -17,9 +17,10 @@ import {
 
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
+  onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
 }
 
-export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: ProfileIntakeProps) {
   const [name, setName] = useState("");
   const [userId] = useState("demo-user");
   const [experiences, setExperiences] = useState<Experience[]>([
@@ -128,6 +129,9 @@ export default function ProfileIntake({ onMatchesGenerated }: ProfileIntakeProps
       const matchData = await matchRes.json();
       const matches: MatchResult[] = matchData.matches ?? [];
       onMatchesGenerated?.(matches);
+
+      const profileWithId = { ...payload, id: profileId };
+      onProfileSaved?.(profileWithId);
     } catch (err) {
       console.error(err);
       alert("Network error while saving profile.");
