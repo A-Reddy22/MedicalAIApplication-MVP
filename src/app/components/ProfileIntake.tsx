@@ -197,12 +197,24 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
                 <div className="space-y-2">
                   <Label htmlFor="undergrad">Undergraduate Institution</Label>
-                  <Input id="undergrad" name="undergrad" placeholder="e.g., UC Berkeley" defaultValue="UC Berkeley" />
+                  <Input
+                    id="undergrad"
+                    name="undergrad"
+                    placeholder="e.g., UC Berkeley"
+                    value={undergrad}
+                    onChange={(e) => setUndergrad(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="major">Major</Label>
-                  <Input id="major" name="major" placeholder="e.g., Biology" defaultValue="Biology" />
+                  <Input
+                    id="major"
+                    name="major"
+                    placeholder="e.g., Biology"
+                    value={major}
+                    onChange={(e) => setMajor(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -217,7 +229,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="0"
                     max="4.0"
                     placeholder="3.75"
-                    defaultValue="3.78"
+                    value={cumGPA}
+                    onChange={(e) => setCumGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -230,7 +243,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="0"
                     max="4.0"
                     placeholder="3.70"
-                    defaultValue="3.72"
+                    value={scienceGPA}
+                    onChange={(e) => setScienceGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -242,7 +256,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="472"
                     max="528"
                     placeholder="515"
-                    defaultValue="515"
+                    value={mcat}
+                    onChange={(e) => setMcat(e.target.value)}
                   />
                 </div>
               </div>
@@ -268,7 +283,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
               <div className="space-y-2">
                 <Label htmlFor="gradYear">Expected Graduation Year</Label>
-                <Select defaultValue="2025">
+                <Select value={gradYear} onValueChange={(value) => setGradYear(value)}>
                   <SelectTrigger id="gradYear">
                     <SelectValue />
                   </SelectTrigger>
