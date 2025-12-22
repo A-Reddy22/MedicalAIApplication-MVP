@@ -42,12 +42,6 @@ export default function App() {
   const sidebarButtonRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!googleClientId && !auth?.userId) {
-      setAuth({ token: "", userId: "demo-user", name: "Demo User" });
-    }
-  }, [googleClientId, auth?.userId]);
-
-  useEffect(() => {
     const existingToken = localStorage.getItem("idToken");
     if (existingToken) {
       const parsed = decodeIdToken(existingToken);
@@ -110,7 +104,7 @@ export default function App() {
   }, [googleLoaded, googleClientId]);
 
   useEffect(() => {
-    if (!auth?.userId) return;
+    if (!auth?.userId || !auth.token) return;
     loadLatestProfile(auth.userId, auth.token);
   }, [auth?.userId, auth?.token]);
 
@@ -124,10 +118,13 @@ export default function App() {
     }
   }
 
-  async function loadLatestProfile(userId: string, token?: string) {
+  async function loadLatestProfile(userId: string, token: string) {
     try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-      const res = await fetch(`/api/profile/user/${userId}`, headers ? { headers } : undefined);
+      const res = await fetch(`/api/profile/user/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       if (!res.ok) return;
 
       const data = await res.json();
@@ -173,7 +170,7 @@ export default function App() {
   ];
 
   const renderPage = () => {
-    if (googleClientId && !auth?.userId) {
+    if (!auth?.userId) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
           <h2 className="text-2xl font-semibold">Sign in with Google to personalize your experience</h2>
@@ -182,6 +179,9 @@ export default function App() {
             matches without re-entering details.
           </p>
           <div ref={primaryButtonRef} />
+          {!googleClientId && (
+            <p className="text-sm text-red-600">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+          )}
         </div>
       );
     }
@@ -195,7 +195,6 @@ export default function App() {
             authToken={auth.token}
             userId={auth.userId}
             defaultName={auth.name}
-            existingProfile={profile ?? undefined}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
@@ -271,15 +270,12 @@ export default function App() {
                   <User className="w-5 h-5 text-blue-600" />
                 )}
               </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{auth.name ?? "Signed in"}</p>
-                  <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
-                  {!googleClientId && (
-                    <p className="text-[11px] text-amber-600 mt-1">Guest mode (Google sign-in not configured)</p>
-                  )}
-                  <button
-                    type="button"
-                    className="mt-2 text-xs text-blue-600 hover:underline"
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{auth.name ?? "Signed in"}</p>
+                <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-blue-600 hover:underline"
                   onClick={() => {
                     setAuth(null);
                     setProfile(null);
