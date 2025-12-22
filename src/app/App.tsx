@@ -195,7 +195,6 @@ export default function App() {
             authToken={auth.token}
             userId={auth.userId}
             defaultName={auth.name}
-            existingProfile={profile ?? undefined}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");

@@ -39,6 +39,10 @@ export default function ProfileIntake({
   const [scienceGPA, setScienceGPA] = useState("3.72");
   const [mcat, setMcat] = useState("515");
   const [gradYear, setGradYear] = useState("2025");
+}
+
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, authToken, userId, defaultName }: ProfileIntakeProps) {
+  const [name, setName] = useState(defaultName ?? "");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
       id: 1,
@@ -137,6 +141,14 @@ export default function ProfileIntake({
       alert("Please sign in with Google before saving your profile.");
       return;
     }
+
+    // grab simple input values by id where native inputs exist
+    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
+    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
+    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
+    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
+    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
+    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
 
     const payload: SubmittedProfilePayload = {
       name,
