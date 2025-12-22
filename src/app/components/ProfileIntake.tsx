@@ -23,13 +23,7 @@ interface ProfileIntakeProps {
   profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
-export default function ProfileIntake({
-  onMatchesGenerated,
-  onProfileSaved,
-  userId,
-  defaultName,
-  profile,
-}: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName }: ProfileIntakeProps) {
   const resolvedUserId = userId ?? "demo-user";
   const [name, setName] = useState(defaultName ?? "");
   const [undergrad, setUndergrad] = useState("UC Berkeley");
@@ -114,6 +108,14 @@ export default function ProfileIntake({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    // grab simple input values by id where native inputs exist
+    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
+    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
+    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
+    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
+    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
+    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
+
     const payload: SubmittedProfilePayload = {
       name,
       userId: resolvedUserId,
@@ -134,7 +136,7 @@ export default function ProfileIntake({
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -153,7 +155,7 @@ export default function ProfileIntake({
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
