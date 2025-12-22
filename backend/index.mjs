@@ -280,5 +280,16 @@ app.get("/api/match", attachAuthIfPresent, async (req, res) => {
   res.json({ matches });
 });
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+const port = Number(process.env.PORT || process.env.VITE_API_PORT || 4000);
+const server = app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+
+server.on("error", (err) => {
+  if (err?.code === "EADDRINUSE") {
+    console.error(
+      `Port ${port} is already in use. Stop the other process or set PORT/VITE_API_PORT to an open port before running the API.`
+    );
+    process.exit(1);
+  }
+
+  throw err;
+});

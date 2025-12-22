@@ -143,7 +143,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       if (!res.ok) {
         const text = await res.text();
         console.error("Save failed", text);
-        alert("Failed to save profile. See console for details.");
+        alert(
+          `Failed to save profile: ${text || res.statusText}. Make sure the backend is running on the same PORT/VITE_API_PORT as the dev server.`
+        );
         return;
       }
 
@@ -171,7 +173,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       onProfileSaved?.(profileWithId);
     } catch (err) {
       console.error(err);
-      alert("Network error while saving profile.");
+      alert("Network error while saving profile. Verify the API server is running and reachable.");
     }
   }
 
