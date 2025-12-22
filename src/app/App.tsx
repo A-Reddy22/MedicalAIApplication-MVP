@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { GraduationCap, User, Target, Calendar, LayoutDashboard, MessageSquare, FileText } from "lucide-react";
 import Dashboard from "./components/Dashboard";
 import ProfileIntake from "./components/ProfileIntake";
@@ -6,125 +6,47 @@ import SchoolMatch from "./components/SchoolMatch";
 import ApplicationTracker from "./components/ApplicationTracker";
 import EssayReview from "./components/EssayReview";
 import { MatchResult, SubmittedProfilePayload } from "./types";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 
 type Page = "dashboard" | "profile" | "schools" | "tracker" | "essay" | "chat";
 
-type AuthState = {
-  token: string;
+type Session = {
+  mode: "guest" | "username" | "google";
   userId: string;
-  email?: string;
-  name?: string;
-  picture?: string;
+  displayName: string;
 };
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
-          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
-          prompt: () => void;
-        };
-      };
-    };
-  }
-}
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [profile, setProfile] = useState<(SubmittedProfilePayload & { id?: string }) | null>(null);
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [googleLoaded, setGoogleLoaded] = useState(false);
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  const primaryButtonRef = useRef<HTMLDivElement | null>(null);
-  const sidebarButtonRef = useRef<HTMLDivElement | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChoice, setAuthChoice] = useState<"guest" | "username" | "google">("guest");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [googleEmailInput, setGoogleEmailInput] = useState("");
 
   useEffect(() => {
-    const existingToken = localStorage.getItem("idToken");
-    if (existingToken) {
-      const parsed = decodeIdToken(existingToken);
-      if (parsed?.sub) {
-        setAuth({
-          token: existingToken,
-          userId: parsed.sub,
-          email: parsed.email,
-          name: parsed.name,
-          picture: parsed.picture,
-        });
-      }
+    const stored = localStorage.getItem("medadmit.session");
+    if (!stored) return;
+
+    try {
+      const parsed: Session = JSON.parse(stored);
+      setSession(parsed);
+    } catch (err) {
+      console.error("Failed to parse session", err);
     }
   }, []);
 
   useEffect(() => {
-    if (!googleClientId) return;
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setGoogleLoaded(true);
-    document.head.appendChild(script);
-    return () => {
-      document.head.removeChild(script);
-    };
-  }, [googleClientId]);
+    if (!session) return;
+    localStorage.setItem("medadmit.session", JSON.stringify(session));
+    loadLatestProfile(session.userId);
+  }, [session]);
 
-  useEffect(() => {
-    if (!googleLoaded || !googleClientId || !window.google) return;
-
-    window.google.accounts.id.initialize({
-      client_id: googleClientId,
-      callback: (response) => {
-        const parsed = decodeIdToken(response.credential);
-        if (!parsed?.sub) return;
-        const nextAuth: AuthState = {
-          token: response.credential,
-          userId: parsed.sub,
-          email: parsed.email,
-          name: parsed.name,
-          picture: parsed.picture,
-        };
-        setAuth(nextAuth);
-        localStorage.setItem("idToken", response.credential);
-      },
-    });
-
-    const targets = [primaryButtonRef.current, sidebarButtonRef.current].filter(Boolean) as HTMLDivElement[];
-    targets.forEach((target) => {
-      target.innerHTML = "";
-      window.google!.accounts.id.renderButton(target, {
-        theme: "outline",
-        size: "large",
-        width: 240,
-      });
-    });
-
-    window.google.accounts.id.prompt();
-  }, [googleLoaded, googleClientId]);
-
-  useEffect(() => {
-    if (!auth?.userId || !auth.token) return;
-    loadLatestProfile(auth.userId, auth.token);
-  }, [auth?.userId, auth?.token]);
-
-  function decodeIdToken(idToken: string) {
+  async function loadLatestProfile(userId: string) {
     try {
-      const payload = JSON.parse(atob(idToken.split(".")[1]));
-      return payload;
-    } catch (err) {
-      console.error("Failed to parse id token", err);
-      return null;
-    }
-  }
-
-  async function loadLatestProfile(userId: string, token: string) {
-    try {
-      const res = await fetch(`/api/profile/user/${userId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await fetch(`/api/profile/user/${userId}`);
       if (!res.ok) return;
 
       const data = await res.json();
@@ -141,13 +63,7 @@ export default function App() {
 
   async function fetchMatchesForProfile(profileId: string) {
     try {
-      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`, {
-        headers: auth?.token
-          ? {
-              Authorization: `Bearer ${auth.token}`,
-            }
-          : undefined,
-      });
+      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
       if (!res.ok) {
         console.error("Failed to fetch matches", await res.text());
         return;
@@ -170,37 +86,23 @@ export default function App() {
   ];
 
   const renderPage = () => {
-    if (!auth?.userId) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-          <h2 className="text-2xl font-semibold">Sign in with Google to personalize your experience</h2>
-          <p className="text-gray-600 max-w-xl">
-            We’ll securely save your profile to your Google account so you can reload your information and application
-            matches without re-entering details.
-          </p>
-          <div ref={primaryButtonRef} />
-          {!googleClientId && (
-            <p className="text-sm text-red-600">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
-          )}
-        </div>
-      );
-    }
-
     switch (currentPage) {
       case "dashboard":
-        return <Dashboard matches={matches} userName={profile?.name} />;
+        return <Dashboard matches={matches} userName={defaultName} />;
       case "profile":
         return (
           <ProfileIntake
-            authToken={auth.token}
-            userId={auth.userId}
-            defaultName={auth.name}
+            userId={session.userId}
+            defaultName={defaultName}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
             }}
             onProfileSaved={(savedProfile) => {
               setProfile(savedProfile);
+              setSession((prev) =>
+                prev ? { ...prev, displayName: savedProfile.name ?? prev.displayName } : prev,
+              );
             }}
           />
         );
@@ -221,9 +123,137 @@ export default function App() {
           </div>
         );
       default:
-        return <Dashboard matches={matches} userName={profile?.name} />;
+        return <Dashboard matches={matches} userName={defaultName} />;
     }
   };
+
+  const defaultName = profile?.name ?? session?.displayName;
+
+  const startGuestSession = () => {
+    const existing = localStorage.getItem("medadmit.guestId");
+    const guestId = existing ?? `guest-${crypto.randomUUID?.() ?? Date.now().toString(36)}`;
+    localStorage.setItem("medadmit.guestId", guestId);
+    activateSession({ mode: "guest", userId: guestId, displayName: "Guest" });
+  };
+
+  const activateSession = (next: Session) => {
+    setMatches([]);
+    setProfile(null);
+    setCurrentPage("dashboard");
+    setSession(next);
+  };
+
+  const handleUsernameLogin = () => {
+    if (!usernameInput.trim()) return;
+    const cleanedName = usernameInput.trim();
+    const slug = cleanedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    const userId = `user-${slug || Date.now().toString(36)}`;
+    activateSession({ mode: "username", userId, displayName: cleanedName });
+  };
+
+  const handleGoogleLogin = () => {
+    if (!googleEmailInput.trim()) return;
+    const email = googleEmailInput.trim().toLowerCase();
+    const nameFromEmail = email.split("@")[0] || "Google User";
+    const userId = `google-${email.replace(/[^a-z0-9]+/g, "-")}`;
+    activateSession({ mode: "google", userId, displayName: nameFromEmail });
+  };
+
+  if (!session) {
+    const googleConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-3xl space-y-6">
+          <div className="flex items-center gap-3">
+            <GraduationCap className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-semibold">Welcome to MedAdmit AI</h1>
+              <p className="text-sm text-gray-600">Choose how you want to start. Your choice controls how we save your progress.</p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div
+              className={`border rounded-xl p-4 space-y-3 ${authChoice === "guest" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">Continue as Guest</h3>
+                <input
+                  type="radio"
+                  name="authChoice"
+                  value="guest"
+                  checked={authChoice === "guest"}
+                  onChange={() => setAuthChoice("guest")}
+                />
+              </div>
+              <p className="text-sm text-gray-600">Keep everything in this browser. No sign-in required.</p>
+              <Button className="w-full" variant={authChoice === "guest" ? "default" : "secondary"} onClick={startGuestSession}>
+                Continue
+              </Button>
+            </div>
+
+            <div
+              className={`border rounded-xl p-4 space-y-3 ${authChoice === "username" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">Sign in with a username</h3>
+                <input
+                  type="radio"
+                  name="authChoice"
+                  value="username"
+                  checked={authChoice === "username"}
+                  onChange={() => setAuthChoice("username")}
+                />
+              </div>
+              <p className="text-sm text-gray-600">Link your progress to a username so you can return to it later.</p>
+              <Input
+                placeholder="Enter a username"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                disabled={authChoice !== "username"}
+              />
+              <Button className="w-full" onClick={handleUsernameLogin} disabled={authChoice !== "username" || !usernameInput.trim()}>
+                Save & continue
+              </Button>
+            </div>
+
+            <div
+              className={`border rounded-xl p-4 space-y-3 ${authChoice === "google" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">Sign in with Google</h3>
+                <input
+                  type="radio"
+                  name="authChoice"
+                  value="google"
+                  checked={authChoice === "google"}
+                  onChange={() => setAuthChoice("google")}
+                />
+              </div>
+              <p className="text-sm text-gray-600">
+                Use your Google email to keep your profile linked. {googleConfigured ? "" : "Set VITE_GOOGLE_CLIENT_ID for full Google sign-in."}
+              </p>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={googleEmailInput}
+                onChange={(e) => setGoogleEmailInput(e.target.value)}
+                disabled={authChoice !== "google"}
+              />
+              <Button className="w-full" onClick={handleGoogleLogin} disabled={authChoice !== "google" || !googleEmailInput.trim()}>
+                Continue with Google
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            You can switch methods later; each option saves data separately so you can try the app as a guest without touching your signed-in profile.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -261,41 +291,17 @@ export default function App() {
         </div>
 
         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-200">
-          {auth?.userId ? (
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
-                {auth.picture ? (
-                  <img src={auth.picture} alt={auth.name ?? "User avatar"} className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-5 h-5 text-blue-600" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{auth.name ?? "Signed in"}</p>
-                <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
-                <button
-                  type="button"
-                  className="mt-2 text-xs text-blue-600 hover:underline"
-                  onClick={() => {
-                    setAuth(null);
-                    setProfile(null);
-                    setMatches([]);
-                    localStorage.removeItem("idToken");
-                  }}
-                >
-                  Sign out
-                </button>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+              <User className="w-5 h-5 text-blue-600" />
             </div>
-          ) : (
-            <div>
-              <p className="text-sm font-medium mb-2">Welcome</p>
-              <div ref={sidebarButtonRef} />
-              {!googleClientId && (
-                <p className="text-xs text-red-600 mt-2">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
-              )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{defaultName || "Guest"}</p>
+              <p className="text-xs text-gray-500 truncate">
+                {session.mode === "guest" ? "Progress saved for this browser" : `Signed in as ${session.mode}`}
+              </p>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
