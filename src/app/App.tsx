@@ -23,7 +23,6 @@ export default function App() {
   const [profile, setProfile] = useState<(SubmittedProfilePayload & { id?: string }) | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [authChoice, setAuthChoice] = useState<"guest" | "username" | "google">("guest");
-  const [guestNameInput, setGuestNameInput] = useState("");
   const [usernameInput, setUsernameInput] = useState("");
   const [googleEmailInput, setGoogleEmailInput] = useState("");
 
@@ -36,7 +35,6 @@ export default function App() {
       setSession(parsed);
     } catch (err) {
       console.error("Failed to parse session", err);
-      localStorage.removeItem("medadmit.session");
     }
   }, []);
 
@@ -48,11 +46,7 @@ export default function App() {
 
   async function loadLatestProfile(userId: string) {
     try {
-      const res = await fetch(`/api/profile/user/${userId}`, {
-        headers: {
-          "x-user-id": userId,
-        },
-      });
+      const res = await fetch(`/api/profile/user/${userId}`);
       if (!res.ok) return;
 
       const data = await res.json();
@@ -76,9 +70,7 @@ export default function App() {
 
   async function fetchMatchesForProfile(profileId: string, ownerUserId?: string) {
     try {
-      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`, {
-        headers: ownerUserId ? { "x-user-id": ownerUserId } : undefined,
-      });
+      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
       if (!res.ok) {
         console.error("Failed to fetch matches", await res.text());
         return;
@@ -109,7 +101,6 @@ export default function App() {
           <ProfileIntake
             userId={session.userId}
             defaultName={defaultName}
-            profile={profile ?? undefined}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
@@ -149,8 +140,7 @@ export default function App() {
     const existing = localStorage.getItem("medadmit.guestId");
     const guestId = existing ?? `guest-${crypto.randomUUID?.() ?? Date.now().toString(36)}`;
     localStorage.setItem("medadmit.guestId", guestId);
-    const fallbackName = guestNameInput.trim() || "Guest";
-    activateSession({ mode: "guest", userId: guestId, displayName: fallbackName });
+    activateSession({ mode: "guest", userId: guestId, displayName: "Guest" });
   };
 
   const activateSession = (next: Session) => {
@@ -205,14 +195,8 @@ export default function App() {
                 />
               </div>
               <p className="text-sm text-gray-600">Keep everything in this browser. No sign-in required.</p>
-              <Input
-                placeholder="Enter a display name"
-                value={guestNameInput}
-                onChange={(e) => setGuestNameInput(e.target.value)}
-                disabled={authChoice !== "guest"}
-              />
               <Button className="w-full" variant={authChoice === "guest" ? "default" : "secondary"} onClick={startGuestSession}>
-                Continue as guest
+                Continue
               </Button>
             </div>
 
