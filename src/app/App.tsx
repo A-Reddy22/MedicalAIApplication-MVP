@@ -54,14 +54,14 @@ export default function App() {
       setProfile(savedProfile);
 
       if (savedProfile?.id) {
-        await fetchMatchesForProfile(savedProfile.id);
+        await fetchMatchesForProfile(savedProfile.id, userId);
       }
     } catch (err) {
       console.error("Failed to fetch latest profile", err);
     }
   }
 
-  async function fetchMatchesForProfile(profileId: string) {
+  async function fetchMatchesForProfile(profileId: string, ownerUserId?: string) {
     try {
       const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
       if (!res.ok) {
