@@ -18,22 +18,43 @@ import {
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
   onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
-  authToken?: string;
   userId?: string;
   defaultName?: string;
+  profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
-export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, authToken, userId, defaultName }: ProfileIntakeProps) {
-  const [name, setName] = useState(defaultName ?? "");
-  const [experiences, setExperiences] = useState<Experience[]>([
-    {
-      id: 1,
-      type: "clinical",
-      title: "Emergency Room Volunteer",
-      hours: "150",
-      description: "Assisted nursing staff with patient transport and comfort measures...",
-    },
-  ]);
+export default function ProfileIntake({
+  onMatchesGenerated,
+  onProfileSaved,
+  userId,
+  defaultName,
+  profile,
+}: ProfileIntakeProps) {
+  const resolvedUserId = userId ?? "demo-user";
+  const FALLBACKS = {
+    name: defaultName ?? "",
+    undergrad: "UC Berkeley",
+    major: "Biology",
+    cumGPA: "3.78",
+    scienceGPA: "3.72",
+    mcat: "515",
+    gradYear: "2025",
+  };
+
+  const [name, setName] = useState(FALLBACKS.name);
+  const [undergrad, setUndergrad] = useState(FALLBACKS.undergrad);
+  const [major, setMajor] = useState(FALLBACKS.major);
+  const [cumGPA, setCumGPA] = useState(FALLBACKS.cumGPA);
+  const [scienceGPA, setScienceGPA] = useState(FALLBACKS.scienceGPA);
+  const [mcat, setMcat] = useState(FALLBACKS.mcat);
+  const [gradYear, setGradYear] = useState(FALLBACKS.gradYear);
+  const [experiences, setExperiences] = useState<Experience[]>([{
+    id: 1,
+    type: "clinical",
+    title: "Emergency Room Volunteer",
+    hours: "150",
+    description: "Assisted nursing staff with patient transport and comfort measures...",
+  }]);
   const [demographics, setDemographics] = useState<Demographics>({
     preferredRegions: [],
     missionPreferences: [],
@@ -41,10 +62,34 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
   const [personalStatement, setPersonalStatement] = useState("");
 
   useEffect(() => {
-    if (defaultName && !name) {
-      setName(defaultName);
-    }
-  }, [defaultName, name]);
+    setName(profile?.name ?? defaultName ?? FALLBACKS.name);
+    setUndergrad(profile?.undergrad ?? FALLBACKS.undergrad);
+    setMajor(profile?.major ?? FALLBACKS.major);
+    setCumGPA(profile?.cumGPA ?? FALLBACKS.cumGPA);
+    setScienceGPA(profile?.scienceGPA ?? FALLBACKS.scienceGPA);
+    setMcat(profile?.mcat ?? FALLBACKS.mcat);
+    setGradYear(profile?.gradYear ?? FALLBACKS.gradYear);
+    setExperiences(
+      profile?.experiences?.length
+        ? profile.experiences
+        : [
+            {
+              id: Date.now(),
+              type: "clinical",
+              title: "Emergency Room Volunteer",
+              hours: "150",
+              description: "Assisted nursing staff with patient transport and comfort measures...",
+            },
+          ],
+    );
+    setDemographics({
+      preferredRegions: profile?.demographics?.preferredRegions ?? [],
+      missionPreferences: profile?.demographics?.missionPreferences ?? [],
+      age: profile?.demographics?.age,
+      state: profile?.demographics?.state,
+    });
+    setPersonalStatement(profile?.essays?.personalStatement ?? "");
+  }, [profile, defaultName]);
 
   const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
   const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
@@ -79,22 +124,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!userId || !authToken) {
-      alert("Please sign in with Google before saving your profile.");
-      return;
-    }
-
-    // grab simple input values by id where native inputs exist
-    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
-    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
-    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
-    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
-    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
-    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
-
     const payload: SubmittedProfilePayload = {
       name,
-      userId,
+      userId: resolvedUserId,
       undergrad,
       major,
       cumGPA,
@@ -112,17 +144,16 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const text = await res.text();
         console.error("Save failed", text);
-        alert("Failed to save profile. See console for details.");
+        alert(
+          `Failed to save profile: ${text || res.statusText}. Make sure the backend is running on the same PORT/VITE_API_PORT as the dev server.`
+        );
         return;
       }
 
@@ -132,10 +163,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
@@ -153,7 +181,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
       onProfileSaved?.(profileWithId);
     } catch (err) {
       console.error(err);
-      alert("Network error while saving profile.");
+      alert("Network error while saving profile. Verify the API server is running and reachable.");
     }
   }
 
@@ -197,12 +225,24 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
                 <div className="space-y-2">
                   <Label htmlFor="undergrad">Undergraduate Institution</Label>
-                  <Input id="undergrad" name="undergrad" placeholder="e.g., UC Berkeley" defaultValue="UC Berkeley" />
+                  <Input
+                    id="undergrad"
+                    name="undergrad"
+                    placeholder="e.g., UC Berkeley"
+                    value={undergrad}
+                    onChange={(e) => setUndergrad(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="major">Major</Label>
-                  <Input id="major" name="major" placeholder="e.g., Biology" defaultValue="Biology" />
+                  <Input
+                    id="major"
+                    name="major"
+                    placeholder="e.g., Biology"
+                    value={major}
+                    onChange={(e) => setMajor(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -217,7 +257,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="0"
                     max="4.0"
                     placeholder="3.75"
-                    defaultValue="3.78"
+                    value={cumGPA}
+                    onChange={(e) => setCumGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -230,7 +271,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="0"
                     max="4.0"
                     placeholder="3.70"
-                    defaultValue="3.72"
+                    value={scienceGPA}
+                    onChange={(e) => setScienceGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -242,7 +284,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
                     min="472"
                     max="528"
                     placeholder="515"
-                    defaultValue="515"
+                    value={mcat}
+                    onChange={(e) => setMcat(e.target.value)}
                   />
                 </div>
               </div>
@@ -268,7 +311,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
               <div className="space-y-2">
                 <Label htmlFor="gradYear">Expected Graduation Year</Label>
-                <Select defaultValue="2025">
+                <Select value={gradYear} onValueChange={setGradYear}>
                   <SelectTrigger id="gradYear">
                     <SelectValue />
                   </SelectTrigger>
