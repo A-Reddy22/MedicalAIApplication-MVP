@@ -21,24 +21,10 @@ interface ProfileIntakeProps {
   authToken?: string;
   userId?: string;
   defaultName?: string;
-  existingProfile?: SubmittedProfilePayload & { id?: string };
 }
 
-export default function ProfileIntake({
-  onMatchesGenerated,
-  onProfileSaved,
-  authToken,
-  userId,
-  defaultName,
-  existingProfile,
-}: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, authToken, userId, defaultName }: ProfileIntakeProps) {
   const [name, setName] = useState(defaultName ?? "");
-  const [undergrad, setUndergrad] = useState("UC Berkeley");
-  const [major, setMajor] = useState("Biology");
-  const [cumGPA, setCumGPA] = useState("3.78");
-  const [scienceGPA, setScienceGPA] = useState("3.72");
-  const [mcat, setMcat] = useState("515");
-  const [gradYear, setGradYear] = useState("2025");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
       id: 1,
@@ -59,46 +45,6 @@ export default function ProfileIntake({
       setName(defaultName);
     }
   }, [defaultName, name]);
-
-  useEffect(() => {
-    if (!existingProfile) return;
-
-    setName(existingProfile.name ?? defaultName ?? "");
-    setUndergrad(existingProfile.undergrad ?? "UC Berkeley");
-    setMajor(existingProfile.major ?? "Biology");
-    setCumGPA(existingProfile.cumGPA ?? "");
-    setScienceGPA(existingProfile.scienceGPA ?? "");
-    setMcat(existingProfile.mcat ?? "");
-    setGradYear(existingProfile.gradYear ?? "2025");
-    setDemographics({
-      preferredRegions: existingProfile.demographics?.preferredRegions ?? [],
-      missionPreferences: existingProfile.demographics?.missionPreferences ?? [],
-      age: existingProfile.demographics?.age,
-      state: existingProfile.demographics?.state,
-    });
-    setPersonalStatement(existingProfile.essays?.personalStatement ?? "");
-
-    const hydratedExperiences = (existingProfile.experiences ?? []).map((exp, idx) => ({
-      id: exp.id ?? idx + 1,
-      type: exp.type ?? "clinical",
-      title: exp.title ?? "",
-      hours: exp.hours ?? "",
-      description: exp.description ?? "",
-    }));
-    setExperiences(
-      hydratedExperiences.length > 0
-        ? hydratedExperiences
-        : [
-            {
-              id: 1,
-              type: "clinical",
-              title: "Emergency Room Volunteer",
-              hours: "150",
-              description: "Assisted nursing staff with patient transport and comfort measures...",
-            },
-          ]
-    );
-  }, [existingProfile, defaultName]);
 
   const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
   const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
@@ -133,10 +79,18 @@ export default function ProfileIntake({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!userId) {
-      alert("Please sign in to save your profile.");
+    if (!userId || !authToken) {
+      alert("Please sign in with Google before saving your profile.");
       return;
     }
+
+    // grab simple input values by id where native inputs exist
+    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
+    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
+    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
+    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
+    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
+    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
 
     const payload: SubmittedProfilePayload = {
       name,

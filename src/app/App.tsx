@@ -35,7 +35,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [profile, setProfile] = useState<(SubmittedProfilePayload & { id?: string }) | null>(null);
-  const [auth, setAuth] = useState<AuthState>({ token: "", userId: "demo-user", name: "Demo User" });
+  const [auth, setAuth] = useState<AuthState | null>(null);
   const [googleLoaded, setGoogleLoaded] = useState(false);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const primaryButtonRef = useRef<HTMLDivElement | null>(null);
@@ -104,7 +104,7 @@ export default function App() {
   }, [googleLoaded, googleClientId]);
 
   useEffect(() => {
-    if (!auth?.userId) return;
+    if (!auth?.userId || !auth.token) return;
     loadLatestProfile(auth.userId, auth.token);
   }, [auth?.userId, auth?.token]);
 
@@ -118,10 +118,13 @@ export default function App() {
     }
   }
 
-  async function loadLatestProfile(userId: string, token?: string) {
+  async function loadLatestProfile(userId: string, token: string) {
     try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-      const res = await fetch(`/api/profile/user/${userId}`, headers ? { headers } : undefined);
+      const res = await fetch(`/api/profile/user/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       if (!res.ok) return;
 
       const data = await res.json();
@@ -167,6 +170,22 @@ export default function App() {
   ];
 
   const renderPage = () => {
+    if (!auth?.userId) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+          <h2 className="text-2xl font-semibold">Sign in with Google to personalize your experience</h2>
+          <p className="text-gray-600 max-w-xl">
+            We’ll securely save your profile to your Google account so you can reload your information and application
+            matches without re-entering details.
+          </p>
+          <div ref={primaryButtonRef} />
+          {!googleClientId && (
+            <p className="text-sm text-red-600">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+          )}
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case "dashboard":
         return <Dashboard matches={matches} userName={profile?.name} />;
@@ -176,7 +195,6 @@ export default function App() {
             authToken={auth.token}
             userId={auth.userId}
             defaultName={auth.name}
-            existingProfile={profile ?? undefined}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
@@ -243,42 +261,40 @@ export default function App() {
         </div>
 
         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
-              {auth.picture ? (
-                <img src={auth.picture} alt={auth.name ?? "User avatar"} className="w-full h-full object-cover" />
-              ) : (
-                <User className="w-5 h-5 text-blue-600" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{auth.name ?? "Guest"}</p>
-              <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
-              {!googleClientId && (
-                <p className="text-[11px] text-amber-600 mt-1">Guest mode (Google sign-in not configured)</p>
-              )}
-              {googleClientId && !auth.token && (
-                <p className="text-[11px] text-amber-700 mt-1">Using guest session — sign in to sync with Google.</p>
-              )}
-              <div className="mt-3 space-y-2">
-                {googleClientId && !auth.token && <div ref={sidebarButtonRef} />}
+          {auth?.userId ? (
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
+                {auth.picture ? (
+                  <img src={auth.picture} alt={auth.name ?? "User avatar"} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-5 h-5 text-blue-600" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{auth.name ?? "Signed in"}</p>
+                <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
                 <button
                   type="button"
-                  className="text-xs text-blue-600 hover:underline"
+                  className="mt-2 text-xs text-blue-600 hover:underline"
                   onClick={() => {
-                    setAuth({ token: "", userId: "demo-user", name: "Demo User" });
+                    setAuth(null);
                     setProfile(null);
                     setMatches([]);
                     localStorage.removeItem("idToken");
                   }}
                 >
-                  {auth.token ? "Sign out" : "Reset guest session"}
+                  Sign out
                 </button>
               </div>
             </div>
-          </div>
-          {!googleClientId && (
-            <p className="text-xs text-red-600 mt-3">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+          ) : (
+            <div>
+              <p className="text-sm font-medium mb-2">Welcome</p>
+              <div ref={sidebarButtonRef} />
+              {!googleClientId && (
+                <p className="text-xs text-red-600 mt-2">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+              )}
+            </div>
           )}
         </div>
       </div>

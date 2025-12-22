@@ -69,7 +69,6 @@ const DEFAULT_MATCH_LIMIT = 30;
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
-const allowGuestAccess = process.env.ALLOW_GUEST !== "false";
 
 async function verifyGoogleIdToken(idToken) {
   if (!oauthClient) {
@@ -87,9 +86,10 @@ async function verifyGoogleIdToken(idToken) {
 }
 
 async function requireAuth(req, res, next) {
-  if (!oauthClient) return next();
+  if (!oauthClient) {
+    return res.status(500).json({ error: "Google auth is not configured" });
+  }
   const header = req.headers.authorization;
-  if (allowGuestAccess && !header) return next();
   if (!header?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing Authorization header" });
   }
@@ -145,7 +145,7 @@ app.post("/api/profile", requireAuth, async (req, res) => {
   const profile = {
     id: nanoid(),
     ...parse.data,
-    userId: oauthClient && !allowGuestAccess ? req.userId ?? null : parse.data.userId ?? null,
+    userId: req.userId ?? null,
     experiences: parse.data.experiences ?? [],
     demographics: parse.data.demographics ?? {},
     essays: parse.data.essays ?? {},
@@ -163,15 +163,13 @@ app.get("/api/profile/:id", requireAuth, async (req, res) => {
   await db.read();
   const p = db.data.profiles.find((x) => x.id === id);
   if (!p) return res.status(404).json({ error: "not found" });
-  if (oauthClient && !allowGuestAccess && p.userId && p.userId !== req.userId)
-    return res.status(403).json({ error: "forbidden" });
+  if (p.userId && p.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
   res.json({ profile: p });
 });
 
 app.get("/api/profile/user/:userId", requireAuth, async (req, res) => {
   const userId = req.params.userId;
-  if (oauthClient && !allowGuestAccess && userId !== req.userId)
-    return res.status(403).json({ error: "forbidden" });
+  if (userId !== req.userId) return res.status(403).json({ error: "forbidden" });
   await db.read();
   const userProfiles = db.data.profiles.filter((p) => p.userId === userId);
   if (!userProfiles.length) return res.status(404).json({ error: "not found" });
@@ -213,7 +211,7 @@ app.post("/api/match", attachAuthIfPresent, async (req, res) => {
   if (req.body?.profileId) {
     const stored = await findStoredProfile(req.body.profileId);
     if (!stored) return res.status(404).json({ error: "profile not found" });
-    if (oauthClient && !allowGuestAccess && stored.userId) {
+    if (stored.userId) {
       if (!req.userId) return res.status(401).json({ error: "Authentication required for saved profiles" });
       if (stored.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
     }
@@ -242,7 +240,7 @@ app.get("/api/match", attachAuthIfPresent, async (req, res) => {
   if (profileId) {
     const stored = await findStoredProfile(profileId);
     if (!stored) return res.status(404).json({ error: "profile not found" });
-    if (oauthClient && !allowGuestAccess && stored.userId) {
+    if (stored.userId) {
       if (!req.userId) return res.status(401).json({ error: "Authentication required for saved profiles" });
       if (stored.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
     }
