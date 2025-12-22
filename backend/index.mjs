@@ -85,42 +85,65 @@ async function verifyGoogleIdToken(idToken) {
   };
 }
 
+function resolveUserId(req) {
+  return (
+    req.headers["x-user-id"]?.toString() ||
+    req.body?.userId?.toString?.() ||
+    req.params?.userId?.toString?.() ||
+    req.query?.userId?.toString?.() ||
+    null
+  );
+}
+
 async function requireAuth(req, res, next) {
-  if (!oauthClient) {
-    return res.status(500).json({ error: "Google auth is not configured" });
-  }
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing Authorization header" });
+
+  if (oauthClient && header?.startsWith("Bearer ")) {
+    const token = header.replace(/^Bearer\s+/i, "");
+    try {
+      const user = await verifyGoogleIdToken(token);
+      req.authUser = user;
+      req.userId = user.userId;
+    } catch (err) {
+      console.error("Auth failed", err.message);
+      return res.status(401).json({ error: "Invalid Google ID token" });
+    }
   }
 
-  const token = header.replace(/^Bearer\s+/i, "");
-  try {
-    const user = await verifyGoogleIdToken(token);
-    req.authUser = user;
-    req.userId = user.userId;
-    return next();
-  } catch (err) {
-    console.error("Auth failed", err.message);
-    return res.status(401).json({ error: "Invalid Google ID token" });
+  if (!req.userId) {
+    const fallback = resolveUserId(req);
+    if (!fallback) return res.status(400).json({ error: "userId required" });
+    req.userId = fallback;
   }
+
+  next();
 }
 
 async function attachAuthIfPresent(req, res, next) {
-  if (!oauthClient) return next();
-  const header = req.headers.authorization;
-  if (!header) return next();
-  if (!header.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Invalid Authorization header" });
+  if (oauthClient) {
+    const header = req.headers.authorization;
+    if (header) {
+      if (!header.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Invalid Authorization header" });
+      }
+      try {
+        const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
+        req.authUser = user;
+        req.userId = user.userId;
+      } catch (err) {
+        console.error("Optional auth failed", err.message);
+        return res.status(401).json({ error: "Invalid Google ID token" });
+      }
+    }
   }
-  try {
-    const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
-    req.authUser = user;
-    req.userId = user.userId;
-  } catch (err) {
-    console.error("Optional auth failed", err.message);
-    return res.status(401).json({ error: "Invalid Google ID token" });
+
+  if (!req.userId) {
+    const fallback = resolveUserId(req);
+    if (fallback) {
+      req.userId = fallback;
+    }
   }
+
   next();
 }
 
