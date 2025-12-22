@@ -18,12 +18,12 @@ import {
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
   onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
-  authToken?: string;
   userId?: string;
   defaultName?: string;
 }
 
-export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, authToken, userId, defaultName }: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName }: ProfileIntakeProps) {
+  const resolvedUserId = userId ?? "demo-user";
   const [name, setName] = useState(defaultName ?? "");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
@@ -79,11 +79,6 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!userId || !authToken) {
-      alert("Please sign in with Google before saving your profile.");
-      return;
-    }
-
     // grab simple input values by id where native inputs exist
     const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
     const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
@@ -94,7 +89,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
     const payload: SubmittedProfilePayload = {
       name,
-      userId,
+      userId: resolvedUserId,
       undergrad,
       major,
       cumGPA,
@@ -112,10 +107,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
         body: JSON.stringify(payload),
       });
 
@@ -132,10 +124,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, auth
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
