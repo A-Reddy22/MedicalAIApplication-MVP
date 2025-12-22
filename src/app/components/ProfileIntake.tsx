@@ -107,7 +107,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -124,7 +124,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
