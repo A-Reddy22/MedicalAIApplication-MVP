@@ -23,31 +23,15 @@ interface ProfileIntakeProps {
   profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
-export default function ProfileIntake({
-  onMatchesGenerated,
-  onProfileSaved,
-  userId,
-  defaultName,
-  profile,
-}: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName }: ProfileIntakeProps) {
   const resolvedUserId = userId ?? "demo-user";
-  const FALLBACKS = {
-    name: defaultName ?? "",
-    undergrad: "UC Berkeley",
-    major: "Biology",
-    cumGPA: "3.78",
-    scienceGPA: "3.72",
-    mcat: "515",
-    gradYear: "2025",
-  };
-
-  const [name, setName] = useState(FALLBACKS.name);
-  const [undergrad, setUndergrad] = useState(FALLBACKS.undergrad);
-  const [major, setMajor] = useState(FALLBACKS.major);
-  const [cumGPA, setCumGPA] = useState(FALLBACKS.cumGPA);
-  const [scienceGPA, setScienceGPA] = useState(FALLBACKS.scienceGPA);
-  const [mcat, setMcat] = useState(FALLBACKS.mcat);
-  const [gradYear, setGradYear] = useState(FALLBACKS.gradYear);
+  const [name, setName] = useState(defaultName ?? "");
+  const [undergrad, setUndergrad] = useState("UC Berkeley");
+  const [major, setMajor] = useState("Biology");
+  const [cumGPA, setCumGPA] = useState("3.78");
+  const [scienceGPA, setScienceGPA] = useState("3.72");
+  const [mcat, setMcat] = useState("515");
+  const [gradYear, setGradYear] = useState("2025");
   const [experiences, setExperiences] = useState<Experience[]>([{
     id: 1,
     type: "clinical",
@@ -62,13 +46,13 @@ export default function ProfileIntake({
   const [personalStatement, setPersonalStatement] = useState("");
 
   useEffect(() => {
-    setName(profile?.name ?? defaultName ?? FALLBACKS.name);
-    setUndergrad(profile?.undergrad ?? FALLBACKS.undergrad);
-    setMajor(profile?.major ?? FALLBACKS.major);
-    setCumGPA(profile?.cumGPA ?? FALLBACKS.cumGPA);
-    setScienceGPA(profile?.scienceGPA ?? FALLBACKS.scienceGPA);
-    setMcat(profile?.mcat ?? FALLBACKS.mcat);
-    setGradYear(profile?.gradYear ?? FALLBACKS.gradYear);
+    setName(profile?.name ?? defaultName ?? "");
+    setUndergrad(profile?.undergrad ?? "UC Berkeley");
+    setMajor(profile?.major ?? "Biology");
+    setCumGPA(profile?.cumGPA ?? "");
+    setScienceGPA(profile?.scienceGPA ?? "");
+    setMcat(profile?.mcat ?? "");
+    setGradYear(profile?.gradYear ?? "2025");
     setExperiences(
       profile?.experiences?.length
         ? profile.experiences
@@ -124,6 +108,14 @@ export default function ProfileIntake({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    // grab simple input values by id where native inputs exist
+    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
+    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
+    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
+    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
+    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
+    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
+
     const payload: SubmittedProfilePayload = {
       name,
       userId: resolvedUserId,
@@ -144,7 +136,7 @@ export default function ProfileIntake({
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -163,7 +155,7 @@ export default function ProfileIntake({
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": resolvedUserId },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
