@@ -20,20 +20,25 @@ interface ProfileIntakeProps {
   onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
   userId?: string;
   defaultName?: string;
+  profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
 export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName }: ProfileIntakeProps) {
   const resolvedUserId = userId ?? "demo-user";
   const [name, setName] = useState(defaultName ?? "");
-  const [experiences, setExperiences] = useState<Experience[]>([
-    {
-      id: 1,
-      type: "clinical",
-      title: "Emergency Room Volunteer",
-      hours: "150",
-      description: "Assisted nursing staff with patient transport and comfort measures...",
-    },
-  ]);
+  const [undergrad, setUndergrad] = useState("UC Berkeley");
+  const [major, setMajor] = useState("Biology");
+  const [cumGPA, setCumGPA] = useState("3.78");
+  const [scienceGPA, setScienceGPA] = useState("3.72");
+  const [mcat, setMcat] = useState("515");
+  const [gradYear, setGradYear] = useState("2025");
+  const [experiences, setExperiences] = useState<Experience[]>([{
+    id: 1,
+    type: "clinical",
+    title: "Emergency Room Volunteer",
+    hours: "150",
+    description: "Assisted nursing staff with patient transport and comfort measures...",
+  }]);
   const [demographics, setDemographics] = useState<Demographics>({
     preferredRegions: [],
     missionPreferences: [],
@@ -41,10 +46,34 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
   const [personalStatement, setPersonalStatement] = useState("");
 
   useEffect(() => {
-    if (defaultName && !name) {
-      setName(defaultName);
-    }
-  }, [defaultName, name]);
+    setName(profile?.name ?? defaultName ?? "");
+    setUndergrad(profile?.undergrad ?? "UC Berkeley");
+    setMajor(profile?.major ?? "Biology");
+    setCumGPA(profile?.cumGPA ?? "");
+    setScienceGPA(profile?.scienceGPA ?? "");
+    setMcat(profile?.mcat ?? "");
+    setGradYear(profile?.gradYear ?? "2025");
+    setExperiences(
+      profile?.experiences?.length
+        ? profile.experiences
+        : [
+            {
+              id: Date.now(),
+              type: "clinical",
+              title: "Emergency Room Volunteer",
+              hours: "150",
+              description: "Assisted nursing staff with patient transport and comfort measures...",
+            },
+          ],
+    );
+    setDemographics({
+      preferredRegions: profile?.demographics?.preferredRegions ?? [],
+      missionPreferences: profile?.demographics?.missionPreferences ?? [],
+      age: profile?.demographics?.age,
+      state: profile?.demographics?.state,
+    });
+    setPersonalStatement(profile?.essays?.personalStatement ?? "");
+  }, [profile, defaultName]);
 
   const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
   const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
@@ -186,12 +215,24 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
 
                 <div className="space-y-2">
                   <Label htmlFor="undergrad">Undergraduate Institution</Label>
-                  <Input id="undergrad" name="undergrad" placeholder="e.g., UC Berkeley" defaultValue="UC Berkeley" />
+                  <Input
+                    id="undergrad"
+                    name="undergrad"
+                    placeholder="e.g., UC Berkeley"
+                    value={undergrad}
+                    onChange={(e) => setUndergrad(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="major">Major</Label>
-                  <Input id="major" name="major" placeholder="e.g., Biology" defaultValue="Biology" />
+                  <Input
+                    id="major"
+                    name="major"
+                    placeholder="e.g., Biology"
+                    value={major}
+                    onChange={(e) => setMajor(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -206,7 +247,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="0"
                     max="4.0"
                     placeholder="3.75"
-                    defaultValue="3.78"
+                    value={cumGPA}
+                    onChange={(e) => setCumGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -219,7 +261,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="0"
                     max="4.0"
                     placeholder="3.70"
-                    defaultValue="3.72"
+                    value={scienceGPA}
+                    onChange={(e) => setScienceGPA(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -231,7 +274,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="472"
                     max="528"
                     placeholder="515"
-                    defaultValue="515"
+                    value={mcat}
+                    onChange={(e) => setMcat(e.target.value)}
                   />
                 </div>
               </div>
@@ -257,7 +301,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
 
               <div className="space-y-2">
                 <Label htmlFor="gradYear">Expected Graduation Year</Label>
-                <Select defaultValue="2025">
+                <Select value={gradYear} onValueChange={setGradYear}>
                   <SelectTrigger id="gradYear">
                     <SelectValue />
                   </SelectTrigger>

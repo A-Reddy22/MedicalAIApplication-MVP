@@ -53,15 +53,22 @@ export default function App() {
       const savedProfile = data.profile as SubmittedProfilePayload & { id?: string };
       setProfile(savedProfile);
 
+      setSession((prev) => {
+        if (!prev) return prev;
+        const nextName = savedProfile.name ?? prev.displayName;
+        if (nextName === prev.displayName) return prev;
+        return { ...prev, displayName: nextName };
+      });
+
       if (savedProfile?.id) {
-        await fetchMatchesForProfile(savedProfile.id);
+        await fetchMatchesForProfile(savedProfile.id, userId);
       }
     } catch (err) {
       console.error("Failed to fetch latest profile", err);
     }
   }
 
-  async function fetchMatchesForProfile(profileId: string) {
+  async function fetchMatchesForProfile(profileId: string, ownerUserId?: string) {
     try {
       const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
       if (!res.ok) {
