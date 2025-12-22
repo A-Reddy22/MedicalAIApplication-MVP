@@ -307,7 +307,23 @@ export default function App() {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto p-8">{renderPage()}</div>
+        <div className="max-w-7xl mx-auto p-8 space-y-6">
+          {googleClientId && !auth.token && (
+            <div className="border border-blue-200 bg-blue-50 text-blue-900 p-4 rounded-lg">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">Sign in with Google to personalize your experience</p>
+                  <p className="text-sm text-blue-800">
+                    We’ll securely save your profile to your Google account so you can reload your information and matches without
+                    re-entering details.
+                  </p>
+                </div>
+                <div ref={primaryButtonRef} className="self-start" />
+              </div>
+            </div>
+          )}
+          {renderPage()}
+        </div>
       </div>
     </div>
   );
