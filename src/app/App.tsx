@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GraduationCap, User, Target, Calendar, LayoutDashboard, MessageSquare, FileText } from "lucide-react";
 import Dashboard from "./components/Dashboard";
 import ProfileIntake from "./components/ProfileIntake";
@@ -9,19 +9,122 @@ import { MatchResult, SubmittedProfilePayload } from "./types";
 
 type Page = "dashboard" | "profile" | "schools" | "tracker" | "essay" | "chat";
 
+type AuthState = {
+  token: string;
+  userId: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [profile, setProfile] = useState<(SubmittedProfilePayload & { id?: string }) | null>(null);
-  const userId = "demo-user";
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [googleLoaded, setGoogleLoaded] = useState(false);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const primaryButtonRef = useRef<HTMLDivElement | null>(null);
+  const sidebarButtonRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    loadLatestProfile();
+    const existingToken = localStorage.getItem("idToken");
+    if (existingToken) {
+      const parsed = decodeIdToken(existingToken);
+      if (parsed?.sub) {
+        setAuth({
+          token: existingToken,
+          userId: parsed.sub,
+          email: parsed.email,
+          name: parsed.name,
+          picture: parsed.picture,
+        });
+      }
+    }
   }, []);
 
-  async function loadLatestProfile() {
+  useEffect(() => {
+    if (!googleClientId) return;
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setGoogleLoaded(true);
+    document.head.appendChild(script);
+    return () => {
+      document.head.removeChild(script);
+    };
+  }, [googleClientId]);
+
+  useEffect(() => {
+    if (!googleLoaded || !googleClientId || !window.google) return;
+
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: (response) => {
+        const parsed = decodeIdToken(response.credential);
+        if (!parsed?.sub) return;
+        const nextAuth: AuthState = {
+          token: response.credential,
+          userId: parsed.sub,
+          email: parsed.email,
+          name: parsed.name,
+          picture: parsed.picture,
+        };
+        setAuth(nextAuth);
+        localStorage.setItem("idToken", response.credential);
+      },
+    });
+
+    const targets = [primaryButtonRef.current, sidebarButtonRef.current].filter(Boolean) as HTMLDivElement[];
+    targets.forEach((target) => {
+      target.innerHTML = "";
+      window.google!.accounts.id.renderButton(target, {
+        theme: "outline",
+        size: "large",
+        width: 240,
+      });
+    });
+
+    window.google.accounts.id.prompt();
+  }, [googleLoaded, googleClientId]);
+
+  useEffect(() => {
+    if (!auth?.userId || !auth.token) return;
+    loadLatestProfile(auth.userId, auth.token);
+  }, [auth?.userId, auth?.token]);
+
+  function decodeIdToken(idToken: string) {
     try {
-      const res = await fetch(`/api/profile/user/${userId}`);
+      const payload = JSON.parse(atob(idToken.split(".")[1]));
+      return payload;
+    } catch (err) {
+      console.error("Failed to parse id token", err);
+      return null;
+    }
+  }
+
+  async function loadLatestProfile(userId: string, token: string) {
+    try {
+      const res = await fetch(`/api/profile/user/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       if (!res.ok) return;
 
       const data = await res.json();
@@ -38,7 +141,13 @@ export default function App() {
 
   async function fetchMatchesForProfile(profileId: string) {
     try {
-      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
+      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`, {
+        headers: auth?.token
+          ? {
+              Authorization: `Bearer ${auth.token}`,
+            }
+          : undefined,
+      });
       if (!res.ok) {
         console.error("Failed to fetch matches", await res.text());
         return;
@@ -61,12 +170,32 @@ export default function App() {
   ];
 
   const renderPage = () => {
+    if (!auth?.userId) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+          <h2 className="text-2xl font-semibold">Sign in with Google to personalize your experience</h2>
+          <p className="text-gray-600 max-w-xl">
+            We’ll securely save your profile to your Google account so you can reload your information and application
+            matches without re-entering details.
+          </p>
+          <div ref={primaryButtonRef} />
+          {!googleClientId && (
+            <p className="text-sm text-red-600">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+          )}
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case "dashboard":
         return <Dashboard matches={matches} userName={profile?.name} />;
       case "profile":
         return (
           <ProfileIntake
+            authToken={auth.token}
+            userId={auth.userId}
+            defaultName={auth.name}
+            existingProfile={profile ?? undefined}
             onMatchesGenerated={(nextMatches) => {
               setMatches(nextMatches);
               setCurrentPage("schools");
@@ -133,15 +262,41 @@ export default function App() {
         </div>
 
         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-blue-600" />
+          {auth?.userId ? (
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
+                {auth.picture ? (
+                  <img src={auth.picture} alt={auth.name ?? "User avatar"} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-5 h-5 text-blue-600" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{auth.name ?? "Signed in"}</p>
+                <p className="text-xs text-gray-500 truncate">{auth.email ?? auth.userId}</p>
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-blue-600 hover:underline"
+                  onClick={() => {
+                    setAuth(null);
+                    setProfile(null);
+                    setMatches([]);
+                    localStorage.removeItem("idToken");
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
+          ) : (
             <div>
-              <p className="text-sm font-medium">Sarah Chen</p>
-              <p className="text-xs text-gray-500">Pre-Med Student</p>
+              <p className="text-sm font-medium mb-2">Welcome</p>
+              <div ref={sidebarButtonRef} />
+              {!googleClientId && (
+                <p className="text-xs text-red-600 mt-2">Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in.</p>
+              )}
             </div>
-          </div>
+          )}
         </div>
       </div>
 
