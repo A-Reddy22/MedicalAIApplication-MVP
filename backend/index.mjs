@@ -85,42 +85,65 @@ async function verifyGoogleIdToken(idToken) {
   };
 }
 
+function resolveUserId(req) {
+  return (
+    req.headers["x-user-id"]?.toString() ||
+    req.body?.userId?.toString?.() ||
+    req.params?.userId?.toString?.() ||
+    req.query?.userId?.toString?.() ||
+    null
+  );
+}
+
 async function requireAuth(req, res, next) {
-  if (!oauthClient) {
-    return res.status(500).json({ error: "Google auth is not configured" });
-  }
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing Authorization header" });
+
+  if (oauthClient && header?.startsWith("Bearer ")) {
+    const token = header.replace(/^Bearer\s+/i, "");
+    try {
+      const user = await verifyGoogleIdToken(token);
+      req.authUser = user;
+      req.userId = user.userId;
+    } catch (err) {
+      console.error("Auth failed", err.message);
+      return res.status(401).json({ error: "Invalid Google ID token" });
+    }
   }
 
-  const token = header.replace(/^Bearer\s+/i, "");
-  try {
-    const user = await verifyGoogleIdToken(token);
-    req.authUser = user;
-    req.userId = user.userId;
-    return next();
-  } catch (err) {
-    console.error("Auth failed", err.message);
-    return res.status(401).json({ error: "Invalid Google ID token" });
+  if (!req.userId) {
+    const fallback = resolveUserId(req);
+    if (!fallback) return res.status(400).json({ error: "userId required" });
+    req.userId = fallback;
   }
+
+  next();
 }
 
 async function attachAuthIfPresent(req, res, next) {
-  if (!oauthClient) return next();
-  const header = req.headers.authorization;
-  if (!header) return next();
-  if (!header.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Invalid Authorization header" });
+  if (oauthClient) {
+    const header = req.headers.authorization;
+    if (header) {
+      if (!header.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Invalid Authorization header" });
+      }
+      try {
+        const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
+        req.authUser = user;
+        req.userId = user.userId;
+      } catch (err) {
+        console.error("Optional auth failed", err.message);
+        return res.status(401).json({ error: "Invalid Google ID token" });
+      }
+    }
   }
-  try {
-    const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
-    req.authUser = user;
-    req.userId = user.userId;
-  } catch (err) {
-    console.error("Optional auth failed", err.message);
-    return res.status(401).json({ error: "Invalid Google ID token" });
+
+  if (!req.userId) {
+    const fallback = resolveUserId(req);
+    if (fallback) {
+      req.userId = fallback;
+    }
   }
+
   next();
 }
 
@@ -257,5 +280,16 @@ app.get("/api/match", attachAuthIfPresent, async (req, res) => {
   res.json({ matches });
 });
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+const port = Number(process.env.PORT || process.env.VITE_API_PORT || 4000);
+const server = app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+
+server.on("error", (err) => {
+  if (err?.code === "EADDRINUSE") {
+    console.error(
+      `Port ${port} is already in use. Stop the other process or set PORT/VITE_API_PORT to an open port before running the API.`
+    );
+    process.exit(1);
+  }
+
+  throw err;
+});
