@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { loadSchoolsCsv, searchSchools, findSchoolById } from "./services/schools.mjs";
 import { computeMatches, parseProfile } from "./services/match.mjs";
+import { OAuth2Client } from "google-auth-library";
 
 const app = express();
 app.use(helmet());
@@ -66,6 +67,63 @@ db.data ||= defaultData;
 
 const DEFAULT_MATCH_LIMIT = 30;
 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const allowGuestAccess = process.env.ALLOW_GUEST !== "false";
+
+async function verifyGoogleIdToken(idToken) {
+  if (!oauthClient) {
+    throw new Error("Google auth is not configured (set GOOGLE_CLIENT_ID)");
+  }
+  const ticket = await oauthClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
+  const payload = ticket.getPayload();
+  if (!payload?.sub) throw new Error("Invalid id token payload");
+  return {
+    userId: payload.sub,
+    email: payload.email,
+    name: payload.name,
+    picture: payload.picture,
+  };
+}
+
+async function requireAuth(req, res, next) {
+  if (!oauthClient) return next();
+  const header = req.headers.authorization;
+  if (allowGuestAccess && !header) return next();
+  if (!header?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing Authorization header" });
+  }
+
+  const token = header.replace(/^Bearer\s+/i, "");
+  try {
+    const user = await verifyGoogleIdToken(token);
+    req.authUser = user;
+    req.userId = user.userId;
+    return next();
+  } catch (err) {
+    console.error("Auth failed", err.message);
+    return res.status(401).json({ error: "Invalid Google ID token" });
+  }
+}
+
+async function attachAuthIfPresent(req, res, next) {
+  if (!oauthClient) return next();
+  const header = req.headers.authorization;
+  if (!header) return next();
+  if (!header.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Invalid Authorization header" });
+  }
+  try {
+    const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
+    req.authUser = user;
+    req.userId = user.userId;
+  } catch (err) {
+    console.error("Optional auth failed", err.message);
+    return res.status(401).json({ error: "Invalid Google ID token" });
+  }
+  next();
+}
+
 function coerceLimit(rawLimit, fallback = DEFAULT_MATCH_LIMIT) {
   const limit = Number.parseInt(rawLimit ?? fallback, 10);
   return Number.isFinite(limit) && limit > 0 ? limit : fallback;
@@ -80,14 +138,14 @@ function ensureHasNumericScores(profile) {
   return Number.isFinite(profile.gpa) || Number.isFinite(profile.mcat);
 }
 
-app.post("/api/profile", async (req, res) => {
+app.post("/api/profile", requireAuth, async (req, res) => {
   const parse = schema.safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.errors });
 
   const profile = {
     id: nanoid(),
-    userId: parse.data.userId ?? null,
     ...parse.data,
+    userId: oauthClient && !allowGuestAccess ? req.userId ?? null : parse.data.userId ?? null,
     experiences: parse.data.experiences ?? [],
     demographics: parse.data.demographics ?? {},
     essays: parse.data.essays ?? {},
@@ -100,16 +158,20 @@ app.post("/api/profile", async (req, res) => {
   res.status(201).json({ id: profile.id });
 });
 
-app.get("/api/profile/:id", async (req, res) => {
+app.get("/api/profile/:id", requireAuth, async (req, res) => {
   const id = req.params.id;
   await db.read();
   const p = db.data.profiles.find((x) => x.id === id);
   if (!p) return res.status(404).json({ error: "not found" });
+  if (oauthClient && !allowGuestAccess && p.userId && p.userId !== req.userId)
+    return res.status(403).json({ error: "forbidden" });
   res.json({ profile: p });
 });
 
-app.get("/api/profile/user/:userId", async (req, res) => {
+app.get("/api/profile/user/:userId", requireAuth, async (req, res) => {
   const userId = req.params.userId;
+  if (oauthClient && !allowGuestAccess && userId !== req.userId)
+    return res.status(403).json({ error: "forbidden" });
   await db.read();
   const userProfiles = db.data.profiles.filter((p) => p.userId === userId);
   if (!userProfiles.length) return res.status(404).json({ error: "not found" });
@@ -143,7 +205,7 @@ app.get("/api/schools/:id", (req, res) => {
   res.json({ school: s });
 });
 
-app.post("/api/match", async (req, res) => {
+app.post("/api/match", attachAuthIfPresent, async (req, res) => {
   const safeLimit = coerceLimit(req.body?.limit);
 
   let profileInput = req.body?.profile ?? req.body ?? {};
@@ -151,6 +213,10 @@ app.post("/api/match", async (req, res) => {
   if (req.body?.profileId) {
     const stored = await findStoredProfile(req.body.profileId);
     if (!stored) return res.status(404).json({ error: "profile not found" });
+    if (oauthClient && !allowGuestAccess && stored.userId) {
+      if (!req.userId) return res.status(401).json({ error: "Authentication required for saved profiles" });
+      if (stored.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
+    }
     profileInput = stored;
   }
 
@@ -164,7 +230,7 @@ app.post("/api/match", async (req, res) => {
   res.json({ matches });
 });
 
-app.get("/api/match", async (req, res) => {
+app.get("/api/match", attachAuthIfPresent, async (req, res) => {
   const safeLimit = coerceLimit(req.query.limit);
 
   let profileInput = {
@@ -176,6 +242,10 @@ app.get("/api/match", async (req, res) => {
   if (profileId) {
     const stored = await findStoredProfile(profileId);
     if (!stored) return res.status(404).json({ error: "profile not found" });
+    if (oauthClient && !allowGuestAccess && stored.userId) {
+      if (!req.userId) return res.status(401).json({ error: "Authentication required for saved profiles" });
+      if (stored.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
+    }
     profileInput = stored;
   }
 
