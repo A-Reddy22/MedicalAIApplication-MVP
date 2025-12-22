@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -18,11 +18,13 @@ import {
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
   onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
+  authToken?: string;
+  userId?: string;
+  defaultName?: string;
 }
 
-export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: ProfileIntakeProps) {
-  const [name, setName] = useState("");
-  const [userId] = useState("demo-user");
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, authToken, userId, defaultName }: ProfileIntakeProps) {
+  const [name, setName] = useState(defaultName ?? "");
   const [experiences, setExperiences] = useState<Experience[]>([
     {
       id: 1,
@@ -37,6 +39,12 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: Pr
     missionPreferences: [],
   });
   const [personalStatement, setPersonalStatement] = useState("");
+
+  useEffect(() => {
+    if (defaultName && !name) {
+      setName(defaultName);
+    }
+  }, [defaultName, name]);
 
   const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
   const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
@@ -71,6 +79,11 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: Pr
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    if (!userId || !authToken) {
+      alert("Please sign in with Google before saving your profile.");
+      return;
+    }
+
     // grab simple input values by id where native inputs exist
     const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
     const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
@@ -99,7 +112,10 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: Pr
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
 
@@ -116,7 +132,10 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved }: Pr
 
       const matchRes = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
