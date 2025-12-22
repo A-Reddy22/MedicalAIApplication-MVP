@@ -3,21 +3,38 @@ import { Progress } from "./ui/progress";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { TrendingUp, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { MatchResult } from "../types";
 
-export default function Dashboard() {
+interface DashboardProps {
+  userName?: string;
+  matches?: MatchResult[];
+}
+
+export default function Dashboard({ userName, matches = [] }: DashboardProps) {
   const readinessScore = 82;
 
-  const topSchools = [
-    { name: "UC Irvine", match: 88, tier: "Target" },
-    { name: "Emory University", match: 85, tier: "Target" },
-    { name: "Wake Forest", match: 82, tier: "Target" },
-  ];
+  const greetingName = userName?.trim() || "there";
+  const sortedMatches = [...matches].sort((a, b) => b.matchScore - a.matchScore);
+  const topSchools = sortedMatches.slice(0, 3);
 
-  const reachSchools = [
-    { name: "UCLA", match: 68 },
-    { name: "Stanford", match: 52 },
-    { name: "Yale", match: 48 },
-  ];
+  const findReachSchools = () => {
+    let start = 50;
+    while (start >= 0) {
+      const rangeMatches = sortedMatches
+        .filter((school) => school.matchScore >= start && school.matchScore <= start + 10)
+        .slice(0, 3);
+
+      if (rangeMatches.length) {
+        return rangeMatches;
+      }
+
+      start -= 10;
+    }
+
+    return [] as MatchResult[];
+  };
+
+  const reachSchools = findReachSchools();
 
   const nextSteps = [
     {
@@ -43,7 +60,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="mb-2">Welcome back, Sarah</h1>
+        <h1 className="mb-2">Welcome back, {greetingName}</h1>
         <p className="text-gray-600">
           Here's your application readiness overview for Fall 2026 matriculation
         </p>
@@ -83,20 +100,24 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {topSchools.map((school) => (
-                <div key={school.name} className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">{school.name}</p>
-                    <Badge variant="outline" className="mt-1 text-xs">
-                      {school.tier}
-                    </Badge>
+              {topSchools.length ? (
+                topSchools.map((school) => (
+                  <div key={school.schoolId ?? school.name} className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{school.name}</p>
+                      <Badge variant="outline" className="mt-1 text-xs">
+                        School match
+                      </Badge>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-semibold text-green-600">{school.matchScore}%</p>
+                      <p className="text-xs text-gray-500">Match</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-semibold text-green-600">{school.match}%</p>
-                    <p className="text-xs text-gray-500">Match</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-gray-600">Save your profile to see your strongest fits.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -109,18 +130,26 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {reachSchools.map((school) => (
-                <div key={school.name} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium">{school.name}</p>
-                    <span className="text-sm text-gray-600">{school.match}% match</span>
+              {reachSchools.length ? (
+                reachSchools.map((school) => (
+                  <div key={school.schoolId ?? school.name} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{school.name}</p>
+                      <span className="text-sm text-gray-600">{school.matchScore}% match</span>
+                    </div>
+                    <Progress value={school.matchScore} className="h-2" />
                   </div>
-                  <Progress value={school.match} className="h-2" />
-                </div>
-              ))}
-              <p className="text-sm text-gray-600 pt-2">
-                Clinical hours are 20% below average for these programs
-              </p>
+                ))
+              ) : (
+                <p className="text-sm text-gray-600">
+                  We couldn't find reach-range matches yet. Save your profile to get personalized suggestions.
+                </p>
+              )}
+              {reachSchools.length > 0 && (
+                <p className="text-sm text-gray-600 pt-2">
+                  Clinical hours are 20% below average for these programs
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
