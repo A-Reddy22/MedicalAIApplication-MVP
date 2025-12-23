@@ -70,7 +70,13 @@ export default function App() {
 
   async function fetchMatchesForProfile(profileId: string, ownerUserId?: string) {
     try {
-      const res = await fetch(`/api/match?profileId=${profileId}&limit=30`);
+      const params = new URLSearchParams({ profileId, limit: "30" });
+      const resolvedUserId = ownerUserId ?? session?.userId;
+      if (resolvedUserId) {
+        params.set("userId", resolvedUserId);
+      }
+
+      const res = await fetch(`/api/match?${params.toString()}`);
       if (!res.ok) {
         console.error("Failed to fetch matches", await res.text());
         return;
