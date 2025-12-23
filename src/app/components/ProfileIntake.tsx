@@ -23,7 +23,7 @@ interface ProfileIntakeProps {
   profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
-export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName }: ProfileIntakeProps) {
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName, profile }: ProfileIntakeProps) {
   const resolvedUserId = userId ?? "demo-user";
   const [name, setName] = useState(defaultName ?? "");
   const [undergrad, setUndergrad] = useState("UC Berkeley");
