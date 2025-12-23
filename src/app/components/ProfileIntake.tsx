@@ -156,7 +156,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       const matchRes = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
+        body: JSON.stringify({ profileId, profile: payload, limit: 30, userId: resolvedUserId }),
       });
 
       if (!matchRes.ok) {
