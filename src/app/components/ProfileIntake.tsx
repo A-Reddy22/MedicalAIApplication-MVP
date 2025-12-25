@@ -32,6 +32,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
   const [scienceGPA, setScienceGPA] = useState("3.72");
   const [mcat, setMcat] = useState("515");
   const [gradYear, setGradYear] = useState("2025");
+  const [extrasScore, setExtrasScore] = useState("");
   const [experiences, setExperiences] = useState<Experience[]>([{
     id: 1,
     type: "clinical",
@@ -53,6 +54,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     setScienceGPA(profile?.scienceGPA ?? "");
     setMcat(profile?.mcat ?? "");
     setGradYear(profile?.gradYear ?? "2025");
+    setExtrasScore(profile?.extrasScore !== undefined ? String(profile.extrasScore) : "");
     setExperiences(
       profile?.experiences?.length
         ? profile.experiences
@@ -71,12 +73,68 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       missionPreferences: profile?.demographics?.missionPreferences ?? [],
       age: profile?.demographics?.age,
       state: profile?.demographics?.state,
+      race: profile?.demographics?.race,
+      gender: profile?.demographics?.gender,
+      ses: profile?.demographics?.ses,
     });
     setPersonalStatement(profile?.essays?.personalStatement ?? "");
   }, [profile, defaultName]);
 
-  const preferredRegionOptions = ["West Coast", "East Coast", "Midwest", "South", "No Preference"];
+  const preferredRegionOptions = ["West", "Northeast", "Midwest", "South", "No Preference"];
   const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
+  const stateOptions = [
+    "Alabama",
+    "Alaska",
+    "Arizona",
+    "Arkansas",
+    "California",
+    "Colorado",
+    "Connecticut",
+    "Delaware",
+    "District of Columbia",
+    "Florida",
+    "Georgia",
+    "Hawaii",
+    "Idaho",
+    "Illinois",
+    "Indiana",
+    "Iowa",
+    "Kansas",
+    "Kentucky",
+    "Louisiana",
+    "Maine",
+    "Maryland",
+    "Massachusetts",
+    "Michigan",
+    "Minnesota",
+    "Mississippi",
+    "Missouri",
+    "Montana",
+    "Nebraska",
+    "Nevada",
+    "New Hampshire",
+    "New Jersey",
+    "New Mexico",
+    "New York",
+    "North Carolina",
+    "North Dakota",
+    "Ohio",
+    "Oklahoma",
+    "Oregon",
+    "Pennsylvania",
+    "Rhode Island",
+    "South Carolina",
+    "South Dakota",
+    "Tennessee",
+    "Texas",
+    "Utah",
+    "Vermont",
+    "Virginia",
+    "Washington",
+    "West Virginia",
+    "Wisconsin",
+    "Wyoming",
+  ];
 
   const addExperience = () => {
     setExperiences((prev) => [
@@ -116,6 +174,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
     const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
 
+    const numericExtrasScore = Number.parseFloat(extrasScore);
     const payload: SubmittedProfilePayload = {
       name,
       userId: resolvedUserId,
@@ -126,6 +185,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       mcat,
       gradYear,
       experiences,
+      extrasScore: Number.isFinite(numericExtrasScore) ? numericExtrasScore : undefined,
       demographics,
       essays: {
         personalStatement,
@@ -410,6 +470,28 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Experiences Strength</CardTitle>
+              <CardDescription>
+                Provide a 0-100 rating that reflects your research, clinical, leadership, and service depth.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Label htmlFor="extrasScore">Experiences score (0-100)</Label>
+              <Input
+                id="extrasScore"
+                name="extrasScore"
+                type="number"
+                min="0"
+                max="100"
+                placeholder="85"
+                value={extrasScore}
+                onChange={(e) => setExtrasScore(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+
           {/* Summary Card */}
           <Card>
             <CardHeader>
@@ -469,17 +551,75 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                       <SelectValue placeholder="Select state" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ca">California</SelectItem>
-                      <SelectItem value="ny">New York</SelectItem>
-                      <SelectItem value="tx">Texas</SelectItem>
-                      <SelectItem value="fl">Florida</SelectItem>
+                      {stateOptions.map((state) => (
+                        <SelectItem key={state} value={state}>
+                          {state}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="race">Race/Ethnicity</Label>
+                  <Select
+                    value={demographics.race ?? undefined}
+                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, race: value }))}
+                  >
+                    <SelectTrigger id="race">
+                      <SelectValue placeholder="Select race" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Black or African American">Black or African American</SelectItem>
+                      <SelectItem value="Hispanic/Latino">Hispanic/Latino</SelectItem>
+                      <SelectItem value="Native American or Alaska Native">Native American or Alaska Native</SelectItem>
+                      <SelectItem value="Native Hawaiian or Pacific Islander">Native Hawaiian or Pacific Islander</SelectItem>
+                      <SelectItem value="Asian">Asian</SelectItem>
+                      <SelectItem value="White">White</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gender">Gender</Label>
+                  <Select
+                    value={demographics.gender ?? undefined}
+                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, gender: value }))}
+                  >
+                    <SelectTrigger id="gender">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Non-binary">Non-binary</SelectItem>
+                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ses">Socioeconomic Status</Label>
+                  <Select
+                    value={demographics.ses ?? undefined}
+                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, ses: value }))}
+                  >
+                    <SelectTrigger id="ses">
+                      <SelectValue placeholder="Select SES" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Disadvantaged">Disadvantaged</SelectItem>
+                      <SelectItem value="Non-disadvantaged">Non-disadvantaged</SelectItem>
+                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label>Preferred Geographic Regions</Label>
+                <Label>Geographic Preferences (Regions)</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {preferredRegionOptions.map((region) => {
                     const isActive = demographics.preferredRegions?.includes(region);
@@ -552,7 +692,6 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     </form>
   );
 }
-
 
 
 
