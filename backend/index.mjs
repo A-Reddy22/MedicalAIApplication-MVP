@@ -36,6 +36,9 @@ const experienceSchema = z.object({
 const demographicsSchema = z.object({
   age: z.string().optional(),
   state: z.string().optional(),
+  race: z.string().optional(),
+  gender: z.string().optional(),
+  ses: z.string().optional(),
   preferredRegions: z.array(z.string()).optional(),
   missionPreferences: z.array(z.string()).optional(),
 });
@@ -54,6 +57,7 @@ const schema = z.object({
   mcat: z.string().optional(),
   gradYear: z.string().optional(),
   experiences: z.array(experienceSchema).optional(),
+  extrasScore: z.union([z.string(), z.number()]).optional(),
   demographics: demographicsSchema.optional(),
   essays: essaysSchema.optional(),
 });
@@ -203,7 +207,10 @@ app.get("/api/profile/user/:userId", requireAuth, async (req, res) => {
 // load schools data
 let schoolsData = { list: [], mapById: new Map(), mapByName: new Map() };
 try {
-  schoolsData = await loadSchoolsCsv(new URL("./data/schools.csv", import.meta.url));
+  schoolsData = await loadSchoolsCsv(
+    new URL("./data/schools.csv", import.meta.url),
+    new URL("./data/CSV_Data - DEMOGRAPHICS.csv", import.meta.url)
+  );
   console.log(`Loaded ${schoolsData.list.length} schools`);
 } catch (err) {
   console.warn("Could not load schools data:", err.message);

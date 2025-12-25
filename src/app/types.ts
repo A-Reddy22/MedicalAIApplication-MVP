@@ -18,6 +18,7 @@ export interface SubmittedProfilePayload {
   mcat?: string;
   gradYear?: string;
   experiences?: Experience[];
+  extrasScore?: number;
   demographics?: Demographics;
   essays?: EssaysPayload;
   updatedAt?: string;
@@ -34,6 +35,9 @@ export interface Experience {
 export interface Demographics {
   age?: string;
   state?: string;
+  race?: string;
+  gender?: string;
+  ses?: string;
   preferredRegions?: string[];
   missionPreferences?: string[];
 }
