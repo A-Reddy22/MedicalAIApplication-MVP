@@ -230,20 +230,25 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
 
   const updateExperience = (id: Experience["id"], patch: Partial<Experience>) => {
     const updatedAt = new Date().toISOString();
-    let updatedExperience: Experience | null = null;
+
+    // build the merged experience from current state for validation
+    const existing = experiences.find((exp) => exp.id === id) ?? null;
+    const merged: Experience | null = existing ? { ...existing, ...patch, updatedAt } : null;
+
+    // update state (use merged if available, otherwise apply patch defensively)
     setExperiences((prev) =>
-      prev.map((experience) => {
-        if (experience.id !== id) {
-          return experience;
-        }
-        updatedExperience = { ...experience, ...patch, updatedAt };
-        return updatedExperience;
-      })
+      prev.map((experience) =>
+        experience.id === id
+          ? merged ?? { ...experience, ...patch, updatedAt }
+          : experience,
+      ),
     );
-    if (updatedExperience) {
+
+    // validate the merged object and set errors
+    if (merged) {
       setExperienceErrors((prev) => ({
         ...prev,
-        [id]: validateExperience(updatedExperience),
+        [String(id)]: validateExperience(merged),
       }));
     }
   };
