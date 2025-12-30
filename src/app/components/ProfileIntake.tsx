@@ -222,10 +222,11 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
   const removeExperience = (id: Experience["id"]) => {
     setExperienceErrors((prev) => {
       const next = { ...prev };
-      delete next[id];
+      delete next[String(id)];
       return next;
     });
-    setExperiences((prev) => prev.filter((exp) => exp.id !== id));
+
+    setExperiences((prev) => prev.filter((exp) => String(exp.id) !== String(id)));
   };
 
   const updateExperience = (id: Experience["id"], patch: Partial<Experience>) => {
@@ -691,16 +692,14 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                 <div key={exp.id} className="p-4 border border-gray-200 rounded-lg space-y-4">
                   <div className="flex items-center justify-between">
                     <Badge variant="outline">Experience {idx + 1}</Badge>
-                    {experiences.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeExperience(exp.id)}
-                        type="button"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeExperience(exp.id)}
+                      type="button"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </Button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
