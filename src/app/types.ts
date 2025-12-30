@@ -25,11 +25,13 @@ export interface SubmittedProfilePayload {
 }
 
 export interface Experience {
-  id: number | string;
+  id: string;
   type: string;
-  title?: string;
-  hours?: string;
-  description?: string;
+  roleTitle: string;
+  totalHours: number;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Demographics {
