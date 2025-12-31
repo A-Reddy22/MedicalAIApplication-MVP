@@ -74,6 +74,51 @@ const DEFAULT_MATCH_LIMIT = 30;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "ENTER_API_KEY_HERE";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
+const OPENAI_TEMPERATURE = 0.3;
+const OPENAI_MAX_TOKENS = 900;
+const ESSAY_MAX_LENGTH = 5300;
+const ESSAY_RATE_LIMIT = rateLimit({
+  windowMs: 60_000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const ESSAY_SYSTEM_PROMPT = `You are an experienced U.S. medical school admissions reviewer evaluating AMCAS personal statements for MD programs.
+Be professional, honest, and realistic.
+Do not rewrite the essay.
+Do not provide line edits.
+Do not assume any applicant information beyond what is written.
+Treat each essay as a brand-new submission with no memory of prior feedback.`;
+const ESSAY_USER_PROMPT_TEMPLATE = `Analyze the following medical school personal statement.
+
+Provide feedback using this exact structure:
+
+1. Overall Impression (3–4 sentences)
+
+2. Strengths (up to 10 bullet points, fewer if appropriate)
+
+3. Weaknesses / Areas for Improvement (up to 10 bullet points, fewer if appropriate)
+
+4. Essay Rating (numeric score out of 10, realistic and harsh, may use decimals)
+
+Rules:
+- Do NOT rewrite the essay
+- Do NOT provide example sentences
+- Do NOT compare to previous versions
+- Do NOT assume GPA, MCAT, or experiences not stated
+- Be realistic, not inflated
+
+Essay:
+"""
+{{ESSAY_TEXT}}
+"""`;
+
+const essayAnalyzeSchema = z.object({
+  essay: z.string().trim().min(1, "Essay is required").max(ESSAY_MAX_LENGTH, "Essay exceeds 5,300 characters"),
+});
+
 async function verifyGoogleIdToken(idToken) {
   if (!oauthClient) {
     throw new Error("Google auth is not configured (set GOOGLE_CLIENT_ID)");
@@ -285,6 +330,59 @@ app.get("/api/match", attachAuthIfPresent, async (req, res) => {
 
   const matches = computeMatches(profile, schoolsData.list, safeLimit);
   res.json({ matches });
+});
+
+app.post("/api/essay/analyze", ESSAY_RATE_LIMIT, async (req, res) => {
+  const parse = essayAnalyzeSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.errors });
+  }
+
+  const { essay } = parse.data;
+
+  const userPrompt = ESSAY_USER_PROMPT_TEMPLATE.replace("{{ESSAY_TEXT}}", essay);
+
+  try {
+    if (!OPENAI_API_KEY || OPENAI_API_KEY === "ENTER_API_KEY_HERE") {
+      console.error("OpenAI API key is not configured.");
+      return res.status(500).json({ error: "Unable to analyze essay at this time." });
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: OPENAI_TEMPERATURE,
+        max_tokens: OPENAI_MAX_TOKENS,
+        messages: [
+          { role: "system", content: ESSAY_SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OpenAI error:", response.status, errorText);
+      return res.status(500).json({ error: "Unable to analyze essay at this time." });
+    }
+
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error("OpenAI response missing content");
+      return res.status(500).json({ error: "Unable to analyze essay at this time." });
+    }
+
+    return res.json({ analysis: content });
+  } catch (error) {
+    console.error("OpenAI request failed:", error);
+    return res.status(500).json({ error: "Unable to analyze essay at this time." });
+  }
 });
 
 const port = Number(process.env.PORT || process.env.VITE_API_PORT || 4000);

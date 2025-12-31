@@ -10,10 +10,9 @@ import { Alert, AlertDescription } from "./ui/alert";
 export default function EssayReview() {
   const [essay, setEssay] = useState("");
   const [analyzed, setAnalyzed] = useState(false);
-
-  const handleAnalyze = () => {
-    setAnalyzed(true);
-  };
+  const [analysisText, setAnalysisText] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   // Mock analysis data
   const analysis = {
@@ -59,6 +58,55 @@ export default function EssayReview() {
     ],
   };
 
+  const handleAnalyze = async () => {
+    const trimmedEssay = essay.trim();
+    if (!trimmedEssay) {
+      setAnalyzed(false);
+      setAnalysisText("");
+      setErrorMessage("Please paste your essay before analyzing.");
+      return;
+    }
+
+    if (essay.length > 5300) {
+      setAnalyzed(false);
+      setAnalysisText("");
+      setErrorMessage("Essay exceeds the 5,300 character limit.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage("");
+    setAnalysisText("");
+    setAnalyzed(true);
+
+    try {
+      const response = await fetch("/api/essay/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ essay }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Analysis failed");
+      }
+
+      const data = await response.json();
+      if (!data?.analysis) {
+        throw new Error("Missing analysis");
+      }
+
+      setAnalysisText(data.analysis);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Unable to analyze essay at this time. Please try again.");
+      setAnalysisText("");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -89,12 +137,17 @@ export default function EssayReview() {
               <p className="text-sm text-gray-500">{essay.length}/5,300 characters</p>
               <div className="flex gap-2">
                 <Button variant="outline">Upload File</Button>
-                <Button onClick={handleAnalyze} disabled={essay.length < 100}>
+                <Button onClick={handleAnalyze} disabled={isLoading || essay.length === 0}>
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Analyze Essay
+                  {isLoading ? "Analyzing..." : "Analyze Essay"}
                 </Button>
               </div>
             </div>
+            {errorMessage && (
+              <Alert variant="destructive">
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         </Card>
 
@@ -116,6 +169,10 @@ export default function EssayReview() {
               </div>
             ) : (
               <div className="space-y-6">
+                <div className="h-[250px] overflow-y-auto whitespace-pre-wrap text-sm text-gray-700">
+                  {errorMessage || analysisText || "Analyzing..."}
+                </div>
+
                 {/* Overall Score */}
                 <div className="text-center p-6 bg-blue-50 rounded-lg">
                   <p className="text-5xl font-semibold text-blue-600">{analysis.overallScore}</p>
