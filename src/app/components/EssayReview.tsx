@@ -227,7 +227,7 @@ export default function EssayReview() {
             <CardDescription>Comprehensive feedback on your essay</CardDescription>
           </CardHeader>
           <CardContent>
-            {!analyzed ? (
+            {!analyzed && !isLoading && !errorMessage ? (
               <div className="h-[450px] flex items-center justify-center">
                 <div className="text-center">
                   <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
@@ -239,7 +239,7 @@ export default function EssayReview() {
             ) : (
               <div className="space-y-6">
                 <div className="h-[250px] overflow-y-auto whitespace-pre-wrap text-sm text-gray-700">
-                  {errorMessage || analysisText || "Analyzing..."}
+                  {errorMessage || analysisText || (isLoading ? "Analyzing..." : "")}
                 </div>
 
                 {parsed.overallImpression && (
