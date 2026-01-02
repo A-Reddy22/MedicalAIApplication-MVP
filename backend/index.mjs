@@ -93,15 +93,17 @@ Do not assume any applicant information beyond what is written.
 Treat each essay as a brand-new submission with no memory of prior feedback.`;
 const ESSAY_USER_PROMPT_TEMPLATE = `Analyze the following medical school personal statement.
 
-Provide feedback using this exact structure:
+Provide feedback using this exact structure and keep the total response under 500 words:
 
 1. Overall Impression (3–4 sentences)
 
-2. Strengths (up to 10 bullet points, fewer if appropriate)
+2. Strengths (Pros) (up to 10 bullet points, fewer if appropriate)
 
-3. Weaknesses / Areas for Improvement (up to 10 bullet points, fewer if appropriate)
+3. Weaknesses / Areas for Improvement (Cons) (up to 10 bullet points, fewer if appropriate)
 
 4. Essay Rating (numeric score out of 10, realistic and harsh, may use decimals)
+
+5. Security Vulnerabilities (bullet points, if any; explain why each item is a risk)
 
 Rules:
 - Do NOT rewrite the essay
