@@ -1,11 +1,106 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Progress } from "./ui/progress";
-import { Sparkles, AlertCircle, CheckCircle2, Lightbulb, FileText } from "lucide-react";
+import { Sparkles, AlertCircle, CheckCircle2, Lightbulb, FileText, ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
+
+type ParsedAnalysis = {
+  overallImpression: string;
+  strengths: string[];
+  weaknesses: string[];
+  rating: string | null;
+  vulnerabilities: string[];
+};
+
+const headingMatchers = [
+  { key: "overallImpression", label: "Overall Impression", regex: /^(\d+\.)?\s*Overall Impression/i },
+  { key: "strengths", label: "Strengths", regex: /^(\d+\.)?\s*Strengths/i },
+  { key: "weaknesses", label: "Weaknesses", regex: /^(\d+\.)?\s*Weaknesses/i },
+  { key: "essayRating", label: "Essay Rating", regex: /^(\d+\.)?\s*Essay Rating/i },
+  { key: "vulnerabilities", label: "Security Vulnerabilities", regex: /^(\d+\.)?\s*Security Vulnerabilities/i },
+];
+
+function parseAnalysis(text: string): ParsedAnalysis {
+  if (!text.trim()) {
+    return {
+      overallImpression: "",
+      strengths: [],
+      weaknesses: [],
+      rating: null,
+      vulnerabilities: [],
+    };
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let currentSection: string | null = null;
+  const overallLines: string[] = [];
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+  const vulnerabilities: string[] = [];
+  let rating: string | null = null;
+
+  const pushBullet = (target: string[], line: string) => {
+    const cleaned = line.replace(/^[-*•]\s+/, "").replace(/^\d+\.\s+/, "").trim();
+    if (cleaned) {
+      target.push(cleaned);
+    }
+  };
+
+  for (const line of lines) {
+    const headingMatch = headingMatchers.find((heading) => heading.regex.test(line));
+    if (headingMatch) {
+      currentSection = headingMatch.key;
+      if (currentSection === "essayRating") {
+        const match = line.match(/([0-9]+(?:\.[0-9]+)?)/);
+        if (match) {
+          rating = match[1];
+        }
+      }
+      continue;
+    }
+
+    if (currentSection === "essayRating") {
+      const match = line.match(/([0-9]+(?:\.[0-9]+)?)/);
+      if (match) {
+        rating = match[1];
+      }
+      continue;
+    }
+
+    if (currentSection === "overallImpression") {
+      overallLines.push(line);
+      continue;
+    }
+
+    if (currentSection === "strengths") {
+      pushBullet(strengths, line);
+      continue;
+    }
+
+    if (currentSection === "weaknesses") {
+      pushBullet(weaknesses, line);
+      continue;
+    }
+
+    if (currentSection === "vulnerabilities") {
+      pushBullet(vulnerabilities, line);
+    }
+  }
+
+  return {
+    overallImpression: overallLines.join(" "),
+    strengths,
+    weaknesses,
+    rating,
+    vulnerabilities,
+  };
+}
 
 export default function EssayReview() {
   const [essay, setEssay] = useState("");
@@ -14,49 +109,21 @@ export default function EssayReview() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Mock analysis data
-  const analysis = {
-    overallScore: 78,
-    scores: {
-      clarity: 82,
-      depth: 75,
-      authenticity: 80,
-      structure: 72,
-    },
-    strengths: [
-      "Strong opening narrative that immediately engages the reader",
-      "Clear demonstration of empathy and patient-centered thinking",
-      "Good use of specific examples from clinical experiences",
-    ],
-    improvements: [
-      {
-        type: "Structure",
-        issue: "The transition from your opening story to why medicine is abrupt",
-        suggestion:
-          "Consider adding a bridge sentence that connects your personal experience to your broader motivation for medicine",
-        severity: "Medium",
-      },
-      {
-        type: "Reflection",
-        issue: "Limited reflection on what you learned from your research experience",
-        suggestion:
-          "Expand on how your research shaped your understanding of evidence-based medicine and scientific inquiry",
-        severity: "High",
-      },
-      {
-        type: "Clarity",
-        issue: "Sentence on line 12 is overly complex (47 words)",
-        suggestion: "Break this into 2-3 shorter sentences for better readability",
-        severity: "Low",
-      },
-    ],
-    competencies: [
-      { name: "Service Orientation", score: 85, present: true },
-      { name: "Teamwork", score: 70, present: true },
-      { name: "Resilience", score: 60, present: false },
-      { name: "Scientific Inquiry", score: 55, present: false },
-    ],
-  };
+  const parsed = useMemo(() => parseAnalysis(analysisText), [analysisText]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!essay.trim()) {
+      setAnalyzed(false);
+      setAnalysisText("");
+      setErrorMessage("");
+      return;
+    }
+
+    setAnalyzed(false);
+    setAnalysisText("");
+    setErrorMessage("");
+  }, [essay, isLoading]);
 
   const handleAnalyze = async () => {
     const trimmedEssay = essay.trim();
@@ -67,7 +134,7 @@ export default function EssayReview() {
       return;
     }
 
-    if (essay.length > 5300) {
+    if (trimmedEssay.length > 5300) {
       setAnalyzed(false);
       setAnalysisText("");
       setErrorMessage("Essay exceeds the 5,300 character limit.");
@@ -77,7 +144,7 @@ export default function EssayReview() {
     setIsLoading(true);
     setErrorMessage("");
     setAnalysisText("");
-    setAnalyzed(true);
+    setAnalyzed(false);
 
     try {
       const response = await fetch("/api/essay/analyze", {
@@ -85,7 +152,7 @@ export default function EssayReview() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ essay }),
+        body: JSON.stringify({ essay: trimmedEssay }),
       });
 
       if (!response.ok) {
@@ -98,10 +165,12 @@ export default function EssayReview() {
       }
 
       setAnalysisText(data.analysis);
+      setAnalyzed(true);
     } catch (error) {
       console.error(error);
       setErrorMessage("Unable to analyze essay at this time. Please try again.");
       setAnalysisText("");
+      setAnalyzed(true);
     } finally {
       setIsLoading(false);
     }
@@ -158,7 +227,7 @@ export default function EssayReview() {
             <CardDescription>Comprehensive feedback on your essay</CardDescription>
           </CardHeader>
           <CardContent>
-            {!analyzed ? (
+            {!analyzed && !isLoading && !errorMessage ? (
               <div className="h-[450px] flex items-center justify-center">
                 <div className="text-center">
                   <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
@@ -170,28 +239,24 @@ export default function EssayReview() {
             ) : (
               <div className="space-y-6">
                 <div className="h-[250px] overflow-y-auto whitespace-pre-wrap text-sm text-gray-700">
-                  {errorMessage || analysisText || "Analyzing..."}
+                  {errorMessage || analysisText || (isLoading ? "Analyzing..." : "")}
                 </div>
+
+                {parsed.overallImpression && (
+                  <div className="rounded-lg border border-gray-200 p-4">
+                    <p className="text-sm font-semibold text-gray-900 mb-2">Overall Impression</p>
+                    <p className="text-sm text-gray-700">{parsed.overallImpression}</p>
+                  </div>
+                )}
 
                 {/* Overall Score */}
                 <div className="text-center p-6 bg-blue-50 rounded-lg">
-                  <p className="text-5xl font-semibold text-blue-600">{analysis.overallScore}</p>
-                  <p className="text-sm text-gray-600 mt-2">Overall Essay Score</p>
-                  <Badge className="mt-3 bg-blue-100 text-blue-700">Competitive Essay</Badge>
-                </div>
-
-                {/* Score Breakdown */}
-                <div className="space-y-3">
-                  <p className="font-medium">Score Breakdown</p>
-                  {Object.entries(analysis.scores).map(([category, score]) => (
-                    <div key={category} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="capitalize">{category}</span>
-                        <span className="font-medium">{score}/100</span>
-                      </div>
-                      <Progress value={score} className="h-2" />
-                    </div>
-                  ))}
+                  <p className="text-5xl font-semibold text-blue-600">
+                    {parsed.rating ?? "--"}
+                    <span className="text-2xl align-top">/10</span>
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">Overall Essay Rating</p>
+                  <Badge className="mt-3 bg-blue-100 text-blue-700">Harsh, realistic score</Badge>
                 </div>
               </div>
             )}
@@ -210,14 +275,18 @@ export default function EssayReview() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-2">
-                {analysis.strengths.map((strength, idx) => (
-                  <li key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
-                    <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm">{strength}</span>
-                  </li>
-                ))}
-              </ul>
+              {parsed.strengths.length ? (
+                <ul className="space-y-2">
+                  {parsed.strengths.map((strength, idx) => (
+                    <li key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                      <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span className="text-sm">{strength}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">Strengths will appear here after analysis.</p>
+              )}
             </CardContent>
           </Card>
 
@@ -226,88 +295,47 @@ export default function EssayReview() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Lightbulb className="w-5 h-5 text-orange-600" />
-                Suggested Improvements
+                Areas for Improvement
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {analysis.improvements.map((improvement, idx) => (
-                <Alert
-                  key={idx}
-                  className={
-                    improvement.severity === "High"
-                      ? "border-orange-200 bg-orange-50"
-                      : improvement.severity === "Medium"
-                      ? "border-yellow-200 bg-yellow-50"
-                      : "border-blue-200 bg-blue-50"
-                  }
-                >
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium">{improvement.type}</p>
-                        <Badge
-                          variant="outline"
-                          className={
-                            improvement.severity === "High"
-                              ? "border-orange-300 text-orange-700"
-                              : improvement.severity === "Medium"
-                              ? "border-yellow-300 text-yellow-700"
-                              : "border-blue-300 text-blue-700"
-                          }
-                        >
-                          {improvement.severity} Priority
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-gray-700">
-                        <strong>Issue:</strong> {improvement.issue}
-                      </p>
-                      <p className="text-sm text-gray-700">
-                        <strong>Suggestion:</strong> {improvement.suggestion}
-                      </p>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              ))}
+              {parsed.weaknesses.length ? (
+                parsed.weaknesses.map((weakness, idx) => (
+                  <Alert key={idx} className="border-orange-200 bg-orange-50">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      <p className="text-sm text-gray-700">{weakness}</p>
+                    </AlertDescription>
+                  </Alert>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500">Areas for improvement will appear here after analysis.</p>
+              )}
             </CardContent>
           </Card>
 
-          {/* AAMC Competencies */}
+          {/* Security Vulnerabilities */}
           <Card>
             <CardHeader>
-              <CardTitle>AAMC Core Competencies Coverage</CardTitle>
-              <CardDescription>
-                How well your essay demonstrates key medical school competencies
-              </CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-rose-600" />
+                Security Vulnerabilities
+              </CardTitle>
+              <CardDescription>Potential privacy or disclosure risks in the essay content</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {analysis.competencies.map((competency) => (
-                  <div
-                    key={competency.name}
-                    className={`p-4 rounded-lg border ${
-                      competency.present
-                        ? "bg-green-50 border-green-200"
-                        : "bg-gray-50 border-gray-200"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium">{competency.name}</p>
-                      {competency.present ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <AlertCircle className="w-5 h-5 text-gray-400" />
-                      )}
-                    </div>
-                    <Progress value={competency.score} className="h-2 mb-2" />
-                    <p className="text-xs text-gray-600">
-                      {competency.present
-                        ? `Well demonstrated (${competency.score}%)`
-                        : "Consider adding examples that show this quality"}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              {parsed.vulnerabilities.length ? (
+                <ul className="space-y-2">
+                  {parsed.vulnerabilities.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-3 p-3 bg-rose-50 rounded-lg">
+                      <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <span className="text-sm">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">Security risks will appear here after analysis.</p>
+              )}
             </CardContent>
           </Card>
 
