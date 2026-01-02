@@ -74,10 +74,10 @@ const DEFAULT_MATCH_LIMIT = 30;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "ENTER_API_KEY_HERE";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
-const OPENAI_TEMPERATURE = 0.3;
-const OPENAI_MAX_TOKENS = 900;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ENTER_API_KEY_HERE";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_TEMPERATURE = 0.3;
+const GEMINI_MAX_OUTPUT_TOKENS = 900;
 const ESSAY_MAX_LENGTH = 5300;
 const ESSAY_RATE_LIMIT = rateLimit({
   windowMs: 60_000,
@@ -345,44 +345,53 @@ app.post("/api/essay/analyze", ESSAY_RATE_LIMIT, async (req, res) => {
   const userPrompt = ESSAY_USER_PROMPT_TEMPLATE.replace("{{ESSAY_TEXT}}", essay);
 
   try {
-    if (!OPENAI_API_KEY || OPENAI_API_KEY === "ENTER_API_KEY_HERE") {
-      console.error("OpenAI API key is not configured.");
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "ENTER_API_KEY_HERE") {
+      console.error("Gemini API key is not configured.");
       return res.status(500).json({ error: "Unable to analyze essay at this time." });
     }
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
-        temperature: OPENAI_TEMPERATURE,
-        max_tokens: OPENAI_MAX_TOKENS,
-        messages: [
-          { role: "system", content: ESSAY_SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${ESSAY_SYSTEM_PROMPT}\n\n${userPrompt}`,
+              },
+            ],
+          },
         ],
+        generationConfig: {
+          temperature: GEMINI_TEMPERATURE,
+          maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+        },
       }),
-    });
+    }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("OpenAI error:", response.status, errorText);
+      console.error("Gemini error:", response.status, errorText);
       return res.status(500).json({ error: "Unable to analyze essay at this time." });
     }
 
     const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
+    const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!content) {
-      console.error("OpenAI response missing content");
+      console.error("Gemini response missing content");
       return res.status(500).json({ error: "Unable to analyze essay at this time." });
     }
 
     return res.json({ analysis: content });
   } catch (error) {
-    console.error("OpenAI request failed:", error);
+    console.error("Gemini request failed:", error);
     return res.status(500).json({ error: "Unable to analyze essay at this time." });
   }
 });
