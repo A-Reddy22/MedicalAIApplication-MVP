@@ -55,7 +55,7 @@ export default function App() {
 
       setSession((prev) => {
         if (!prev) return prev;
-        const nextName = savedProfile.name ?? prev.displayName;
+        const nextName = savedProfile.applicantProfile?.academic?.fullName ?? prev.displayName;
         if (nextName === prev.displayName) return prev;
         return { ...prev, displayName: nextName };
       });
@@ -114,7 +114,12 @@ export default function App() {
             onProfileSaved={(savedProfile) => {
               setProfile(savedProfile);
               setSession((prev) =>
-                prev ? { ...prev, displayName: savedProfile.name ?? prev.displayName } : prev,
+                prev
+                  ? {
+                      ...prev,
+                      displayName: savedProfile.applicantProfile?.academic?.fullName ?? prev.displayName,
+                    }
+                  : prev,
               );
             }}
           />
@@ -140,7 +145,7 @@ export default function App() {
     }
   };
 
-  const defaultName = profile?.name ?? session?.displayName;
+  const defaultName = profile?.applicantProfile?.academic?.fullName ?? session?.displayName;
 
   const startGuestSession = () => {
     const existing = localStorage.getItem("medadmit.guestId");

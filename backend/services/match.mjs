@@ -99,11 +99,20 @@ function normalizedAcademicScore(value, p10, p90) {
   return clamp((value - p10) / range, 0, 1);
 }
 
+const PREFER_NOT_TO_SAY = "prefer_not_to_say";
+
+function isPreferNotToSay(value) {
+  if (!value) return false;
+  return normalizeLower(value).replace(/\s+/g, "_") === PREFER_NOT_TO_SAY;
+}
+
 function isDisadvantaged(ses) {
+  if (!ses || isPreferNotToSay(ses)) return false;
   return normalizeLower(ses).includes("disadvantaged");
 }
 
 function isUnderrepresentedRace(race) {
+  if (!race || isPreferNotToSay(race)) return false;
   const normalized = normalizeLower(race);
   return UNDERREPRESENTED_RACES.some((entry) => normalized.includes(entry));
 }
@@ -118,19 +127,32 @@ function schoolUrmPercent(school) {
 }
 
 export function parseProfile(raw) {
-  const demographics = raw?.demographics ?? {};
-  const gpa = toFiniteNumber(raw?.gpa ?? raw?.cumGPA);
-  const mcat = toFiniteNumber(raw?.mcat);
+  const applicantProfile = raw?.applicantProfile ?? raw?.profile ?? null;
+  const academic = applicantProfile?.academic ?? {};
+  const demographics = applicantProfile?.demographics ?? raw?.demographics ?? {};
+  const gpa = toFiniteNumber(academic?.cumulativeGPA ?? raw?.gpa ?? raw?.cumGPA);
+  const mcat = toFiniteNumber(academic?.mcatTotal ?? raw?.mcat);
   const extrasScore = toFiniteNumber(raw?.extrasScore ?? raw?.extras_score ?? demographics?.extrasScore);
+  const stateValue = demographics?.stateOfResidence ?? demographics?.state ?? raw?.state ?? null;
+  const raceValue = demographics?.raceEthnicity ?? demographics?.race ?? raw?.race ?? null;
+  const genderValue = demographics?.gender ?? raw?.gender ?? null;
+  const sesValue = demographics?.socioeconomicStatus ?? demographics?.ses ?? raw?.ses ?? null;
+  const preferredRegions =
+    demographics?.geographicPreferences ?? demographics?.preferredRegions ?? raw?.preferredRegions ?? [];
+  const normalizedStateValue = normalizeString(stateValue);
+  const normalizedRaceValue = normalizeString(raceValue);
+  const normalizedGenderValue = normalizeString(genderValue);
+  const normalizedSesValue = normalizeString(sesValue);
+
   return {
     gpa,
     mcat,
     extrasScore,
-    state: demographics?.state ?? raw?.state ?? null,
-    race: demographics?.race ?? raw?.race ?? null,
-    gender: demographics?.gender ?? raw?.gender ?? null,
-    ses: demographics?.ses ?? raw?.ses ?? null,
-    preferredRegions: demographics?.preferredRegions ?? raw?.preferredRegions ?? [],
+    state: !normalizedStateValue || isPreferNotToSay(stateValue) ? null : stateValue,
+    race: !normalizedRaceValue || isPreferNotToSay(raceValue) ? null : raceValue,
+    gender: !normalizedGenderValue || isPreferNotToSay(genderValue) ? null : genderValue,
+    ses: !normalizedSesValue || isPreferNotToSay(sesValue) ? null : sesValue,
+    preferredRegions,
   };
 }
 
