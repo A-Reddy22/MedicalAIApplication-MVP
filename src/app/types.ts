@@ -8,20 +8,65 @@ export interface MatchResult {
   mcatMedian: number | null;
 }
 
+export type PreferNotToSay = "prefer_not_to_say";
+
+export interface ApplicantAcademic {
+  fullName: string;
+  undergradInstitution: string;
+  major: string;
+  cumulativeGPA: number;
+  scienceGPA: number;
+  mcatTotal: number;
+  mcatBreakdown: {
+    chemPhys: number;
+    cars: number;
+    bioBiochem: number;
+    psychSoc: number;
+  };
+  graduationYear: number;
+}
+
+export interface ApplicantDemographics {
+  age: number;
+  stateOfResidence: string | PreferNotToSay;
+  raceEthnicity: string | PreferNotToSay;
+  gender: string | PreferNotToSay;
+  socioeconomicStatus: string | PreferNotToSay;
+  geographicPreferences: string[];
+  missionPreferences: string[];
+}
+
+export interface ApplicantProfile {
+  academic: ApplicantAcademic;
+  demographics: ApplicantDemographics;
+}
+
+export interface LegacyDemographics {
+  age?: string;
+  state?: string;
+  race?: string;
+  gender?: string;
+  ses?: string;
+  preferredRegions?: string[];
+  missionPreferences?: string[];
+}
+
 export interface SubmittedProfilePayload {
-  name: string;
   userId?: string;
+  applicantProfile: ApplicantProfile;
+  experiences?: Experience[];
+  extrasScore?: number;
+  essays?: EssaysPayload;
+  updatedAt?: string;
+  // Legacy fields for compatibility with older stored profiles.
+  name?: string;
   undergrad?: string;
   major?: string;
   cumGPA?: string;
   scienceGPA?: string;
   mcat?: string;
   gradYear?: string;
-  experiences?: Experience[];
-  extrasScore?: number;
-  demographics?: Demographics;
-  essays?: EssaysPayload;
-  updatedAt?: string;
+  demographics?: LegacyDemographics;
 }
 
 export interface Experience {
@@ -32,16 +77,6 @@ export interface Experience {
   description: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface Demographics {
-  age?: string;
-  state?: string;
-  race?: string;
-  gender?: string;
-  ses?: string;
-  preferredRegions?: string[];
-  missionPreferences?: string[];
 }
 
 export interface EssaysPayload {

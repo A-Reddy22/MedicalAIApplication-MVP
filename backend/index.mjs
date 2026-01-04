@@ -33,14 +33,35 @@ const experienceSchema = z.object({
   description: z.string().optional(),
 });
 
+const academicSchema = z.object({
+  fullName: z.string().min(1),
+  undergradInstitution: z.string().min(1),
+  major: z.string().min(1),
+  cumulativeGPA: z.coerce.number(),
+  scienceGPA: z.coerce.number(),
+  mcatTotal: z.coerce.number(),
+  mcatBreakdown: z.object({
+    chemPhys: z.coerce.number(),
+    cars: z.coerce.number(),
+    bioBiochem: z.coerce.number(),
+    psychSoc: z.coerce.number(),
+  }),
+  graduationYear: z.coerce.number(),
+});
+
 const demographicsSchema = z.object({
-  age: z.string().optional(),
-  state: z.string().optional(),
-  race: z.string().optional(),
-  gender: z.string().optional(),
-  ses: z.string().optional(),
-  preferredRegions: z.array(z.string()).optional(),
-  missionPreferences: z.array(z.string()).optional(),
+  age: z.coerce.number(),
+  stateOfResidence: z.string().min(1),
+  raceEthnicity: z.string().min(1),
+  gender: z.string().min(1),
+  socioeconomicStatus: z.string().min(1),
+  geographicPreferences: z.array(z.string()).min(1),
+  missionPreferences: z.array(z.string()).min(1),
+});
+
+const applicantProfileSchema = z.object({
+  academic: academicSchema,
+  demographics: demographicsSchema,
 });
 
 const essaysSchema = z.object({
@@ -48,17 +69,10 @@ const essaysSchema = z.object({
 });
 
 const schema = z.object({
-  name: z.string().min(1).max(200),
+  applicantProfile: applicantProfileSchema,
   userId: z.string().optional(),
-  undergrad: z.string().optional(),
-  major: z.string().optional(),
-  cumGPA: z.string().optional(),
-  scienceGPA: z.string().optional(),
-  mcat: z.string().optional(),
-  gradYear: z.string().optional(),
   experiences: z.array(experienceSchema).optional(),
   extrasScore: z.union([z.string(), z.number()]).optional(),
-  demographics: demographicsSchema.optional(),
   essays: essaysSchema.optional(),
 });
 
@@ -216,12 +230,13 @@ app.post("/api/profile", requireAuth, async (req, res) => {
   const parse = schema.safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.errors });
 
+  // Store the applicant profile as a single document to keep academic + demographics in sync.
   const profile = {
     id: nanoid(),
     ...parse.data,
     userId: req.userId ?? null,
     experiences: parse.data.experiences ?? [],
-    demographics: parse.data.demographics ?? {},
+    applicantProfile: parse.data.applicantProfile,
     essays: parse.data.essays ?? {},
     createdAt: new Date().toISOString(),
   };

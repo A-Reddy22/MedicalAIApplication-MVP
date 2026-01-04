@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Plus, Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import {
-  Demographics,
+  ApplicantProfile,
   Experience,
   MatchResult,
+  PreferNotToSay,
   SubmittedProfilePayload,
 } from "../types";
 
@@ -23,24 +24,68 @@ interface ProfileIntakeProps {
   profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
 
+type ApplicantProfileDraft = {
+  academic: {
+    fullName: string;
+    undergradInstitution: string;
+    major: string;
+    cumulativeGPA: string;
+    scienceGPA: string;
+    mcatTotal: string;
+    mcatBreakdown: {
+      chemPhys: string;
+      cars: string;
+      bioBiochem: string;
+      psychSoc: string;
+    };
+    graduationYear: string;
+  };
+  demographics: {
+    age: string;
+    stateOfResidence: string;
+    raceEthnicity: string;
+    gender: string;
+    socioeconomicStatus: string;
+    geographicPreferences: string[];
+    missionPreferences: string[];
+  };
+};
+
+const PREFER_NOT_TO_SAY: PreferNotToSay = "prefer_not_to_say";
+
 export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName, profile }: ProfileIntakeProps) {
   const resolvedUserId = userId ?? "demo-user";
-  const [name, setName] = useState(defaultName ?? "");
-  const [undergrad, setUndergrad] = useState("UC Berkeley");
-  const [major, setMajor] = useState("Biology");
-  const [cumGPA, setCumGPA] = useState("3.78");
-  const [scienceGPA, setScienceGPA] = useState("3.72");
-  const [mcat, setMcat] = useState("515");
-  const [gradYear, setGradYear] = useState("2025");
+  const [applicantProfile, setApplicantProfile] = useState<ApplicantProfileDraft>(() => ({
+    academic: {
+      fullName: defaultName ?? "",
+      undergradInstitution: "",
+      major: "",
+      cumulativeGPA: "",
+      scienceGPA: "",
+      mcatTotal: "",
+      mcatBreakdown: {
+        chemPhys: "",
+        cars: "",
+        bioBiochem: "",
+        psychSoc: "",
+      },
+      graduationYear: "",
+    },
+    demographics: {
+      age: "",
+      stateOfResidence: "",
+      raceEthnicity: "",
+      gender: "",
+      socioeconomicStatus: "",
+      geographicPreferences: [],
+      missionPreferences: [],
+    },
+  }));
   const [experiences, setExperiences] = useState<Experience[]>([]);
   const [experienceErrors, setExperienceErrors] = useState<Record<string, Partial<Record<keyof Experience, string>>>>(
     {}
   );
   const [newExperienceErrors, setNewExperienceErrors] = useState<Partial<Record<keyof Experience, string>>>({});
-  const [demographics, setDemographics] = useState<Demographics>({
-    preferredRegions: [],
-    missionPreferences: [],
-  });
   const [personalStatement, setPersonalStatement] = useState("");
   const createExperienceId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
   const [newExperience, setNewExperience] = useState<Experience>(() => ({
@@ -53,14 +98,78 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     updatedAt: new Date().toISOString(),
   }));
 
+  const buildEmptyProfile = (nameOverride?: string): ApplicantProfileDraft => ({
+    academic: {
+      fullName: nameOverride ?? "",
+      undergradInstitution: "",
+      major: "",
+      cumulativeGPA: "",
+      scienceGPA: "",
+      mcatTotal: "",
+      mcatBreakdown: {
+        chemPhys: "",
+        cars: "",
+        bioBiochem: "",
+        psychSoc: "",
+      },
+      graduationYear: "",
+    },
+    demographics: {
+      age: "",
+      stateOfResidence: "",
+      raceEthnicity: "",
+      gender: "",
+      socioeconomicStatus: "",
+      geographicPreferences: [],
+      missionPreferences: [],
+    },
+  });
+
+  const normalizePreferNotToSay = (value?: string | null) => {
+    if (!value) return "";
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "prefer not to say" || normalized === PREFER_NOT_TO_SAY) {
+      return PREFER_NOT_TO_SAY;
+    }
+    return value;
+  };
+
+  const toDraftNumber = (value?: number | string | null) =>
+    value === null || value === undefined || Number.isNaN(value) ? "" : String(value);
+
   useEffect(() => {
-    setName(profile?.name ?? defaultName ?? "");
-    setUndergrad(profile?.undergrad ?? "UC Berkeley");
-    setMajor(profile?.major ?? "Biology");
-    setCumGPA(profile?.cumGPA ?? "");
-    setScienceGPA(profile?.scienceGPA ?? "");
-    setMcat(profile?.mcat ?? "");
-    setGradYear(profile?.gradYear ?? "2025");
+    const baseProfile = buildEmptyProfile(defaultName ?? "");
+    const academic = profile?.applicantProfile?.academic;
+    const demographics = profile?.applicantProfile?.demographics;
+    const fallbackDemographics = profile?.demographics;
+    setApplicantProfile({
+      academic: {
+        fullName: academic?.fullName ?? profile?.name ?? baseProfile.academic.fullName,
+        undergradInstitution: academic?.undergradInstitution ?? profile?.undergrad ?? baseProfile.academic.undergradInstitution,
+        major: academic?.major ?? profile?.major ?? baseProfile.academic.major,
+        cumulativeGPA: toDraftNumber(academic?.cumulativeGPA ?? profile?.cumGPA),
+        scienceGPA: toDraftNumber(academic?.scienceGPA ?? profile?.scienceGPA),
+        mcatTotal: toDraftNumber(academic?.mcatTotal ?? profile?.mcat),
+        mcatBreakdown: {
+          chemPhys: toDraftNumber(academic?.mcatBreakdown?.chemPhys),
+          cars: toDraftNumber(academic?.mcatBreakdown?.cars),
+          bioBiochem: toDraftNumber(academic?.mcatBreakdown?.bioBiochem),
+          psychSoc: toDraftNumber(academic?.mcatBreakdown?.psychSoc),
+        },
+        graduationYear: toDraftNumber(academic?.graduationYear ?? profile?.gradYear),
+      },
+      demographics: {
+        age: toDraftNumber(demographics?.age ?? fallbackDemographics?.age),
+        stateOfResidence: normalizePreferNotToSay(demographics?.stateOfResidence ?? fallbackDemographics?.state),
+        raceEthnicity: normalizePreferNotToSay(demographics?.raceEthnicity ?? fallbackDemographics?.race),
+        gender: normalizePreferNotToSay(demographics?.gender ?? fallbackDemographics?.gender),
+        socioeconomicStatus: normalizePreferNotToSay(demographics?.socioeconomicStatus ?? fallbackDemographics?.ses),
+        geographicPreferences:
+          demographics?.geographicPreferences ?? fallbackDemographics?.preferredRegions ?? baseProfile.demographics.geographicPreferences,
+        missionPreferences:
+          demographics?.missionPreferences ?? fallbackDemographics?.missionPreferences ?? baseProfile.demographics.missionPreferences,
+      },
+    });
     const seedExperience: Experience = {
       id: createExperienceId(),
       type: "Clinical Volunteering",
@@ -83,15 +192,6 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
         }))
       : [seedExperience];
     setExperiences(normalizedExperiences);
-    setDemographics({
-      preferredRegions: profile?.demographics?.preferredRegions ?? [],
-      missionPreferences: profile?.demographics?.missionPreferences ?? [],
-      age: profile?.demographics?.age,
-      state: profile?.demographics?.state,
-      race: profile?.demographics?.race,
-      gender: profile?.demographics?.gender,
-      ses: profile?.demographics?.ses,
-    });
     setPersonalStatement(profile?.essays?.personalStatement ?? "");
     setExperienceErrors({});
     setNewExperienceErrors({});
@@ -107,7 +207,7 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
   }, [profile, defaultName]);
 
   const preferredRegionOptions = ["West", "Northeast", "Midwest", "South", "No Preference"];
-  const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health"];
+  const missionPreferenceOptions = ["Research-Heavy", "Primary Care", "Rural Medicine", "Urban Health", "No Preference"];
   const experienceTypeOptions = [
     "Clinical Volunteering",
     "Physician Shadowing",
@@ -168,6 +268,26 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     "Wisconsin",
     "Wyoming",
   ];
+
+  const updateAcademic = (patch: Partial<ApplicantProfileDraft["academic"]>) => {
+    setApplicantProfile((prev) => ({
+      ...prev,
+      academic: {
+        ...prev.academic,
+        ...patch,
+      },
+    }));
+  };
+
+  const updateDemographics = (patch: Partial<ApplicantProfileDraft["demographics"]>) => {
+    setApplicantProfile((prev) => ({
+      ...prev,
+      demographics: {
+        ...prev.demographics,
+        ...patch,
+      },
+    }));
+  };
 
   const resetNewExperience = () => {
     setNewExperience({
@@ -326,20 +446,109 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     return Math.min(100, Math.max(0, Math.round(totalPoints + distributionPoints + balanceBonus - concentrationPenalty)));
   }, [experienceSummary]);
 
-  const toggleDemographicArray = (field: "preferredRegions" | "missionPreferences", value: string) => {
-    setDemographics((prev) => {
-      const current = new Set(prev[field] ?? []);
+  const toggleDemographicArray = (
+    field: "geographicPreferences" | "missionPreferences",
+    value: string
+  ) => {
+    setApplicantProfile((prev) => {
+      const current = new Set(prev.demographics[field] ?? []);
       if (current.has(value)) {
         current.delete(value);
       } else {
         current.add(value);
       }
-      return { ...prev, [field]: Array.from(current) };
+      return {
+        ...prev,
+        demographics: {
+          ...prev.demographics,
+          [field]: Array.from(current),
+        },
+      };
     });
+  };
+
+  const normalizeApplicantProfile = (): { profile: ApplicantProfile | null; errors: string[] } => {
+    const errors: string[] = [];
+    const requireText = (value: string, label: string) => {
+      if (!value.trim()) {
+        errors.push(label);
+        return "";
+      }
+      return value.trim();
+    };
+    const requireNumber = (value: string, label: string) => {
+      if (!value.trim()) {
+        errors.push(label);
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        errors.push(label);
+        return null;
+      }
+      return parsed;
+    };
+    const requireArray = (value: string[], label: string) => {
+      if (!value || value.length === 0) {
+        errors.push(label);
+        return [];
+      }
+      return value;
+    };
+
+    const academicDraft = applicantProfile.academic;
+    const demographicsDraft = applicantProfile.demographics;
+
+    const normalizedState = normalizePreferNotToSay(demographicsDraft.stateOfResidence);
+    const normalizedRace = normalizePreferNotToSay(demographicsDraft.raceEthnicity);
+    const normalizedGender = normalizePreferNotToSay(demographicsDraft.gender);
+    const normalizedSes = normalizePreferNotToSay(demographicsDraft.socioeconomicStatus);
+
+    if (!normalizedState) errors.push("State of residence");
+    if (!normalizedRace) errors.push("Race/ethnicity");
+    if (!normalizedGender) errors.push("Gender");
+    if (!normalizedSes) errors.push("Socioeconomic status");
+
+    const profile: ApplicantProfile = {
+      academic: {
+        fullName: requireText(academicDraft.fullName, "Full name"),
+        undergradInstitution: requireText(academicDraft.undergradInstitution, "Undergraduate institution"),
+        major: requireText(academicDraft.major, "Major"),
+        cumulativeGPA: requireNumber(academicDraft.cumulativeGPA, "Cumulative GPA") ?? 0,
+        scienceGPA: requireNumber(academicDraft.scienceGPA, "Science GPA") ?? 0,
+        mcatTotal: requireNumber(academicDraft.mcatTotal, "MCAT total") ?? 0,
+        mcatBreakdown: {
+          chemPhys: requireNumber(academicDraft.mcatBreakdown.chemPhys, "MCAT Chem/Phys") ?? 0,
+          cars: requireNumber(academicDraft.mcatBreakdown.cars, "MCAT CARS") ?? 0,
+          bioBiochem: requireNumber(academicDraft.mcatBreakdown.bioBiochem, "MCAT Bio/Biochem") ?? 0,
+          psychSoc: requireNumber(academicDraft.mcatBreakdown.psychSoc, "MCAT Psych/Soc") ?? 0,
+        },
+        graduationYear: requireNumber(academicDraft.graduationYear, "Graduation year") ?? 0,
+      },
+      demographics: {
+        age: requireNumber(demographicsDraft.age, "Age") ?? 0,
+        stateOfResidence: normalizedState as ApplicantProfile["demographics"]["stateOfResidence"],
+        raceEthnicity: normalizedRace as ApplicantProfile["demographics"]["raceEthnicity"],
+        gender: normalizedGender as ApplicantProfile["demographics"]["gender"],
+        socioeconomicStatus: normalizedSes as ApplicantProfile["demographics"]["socioeconomicStatus"],
+        geographicPreferences: requireArray(demographicsDraft.geographicPreferences, "Geographic preferences"),
+        missionPreferences: requireArray(demographicsDraft.missionPreferences, "Mission preferences"),
+      },
+    };
+
+    return { profile: errors.length ? null : profile, errors };
   };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const normalized = normalizeApplicantProfile();
+    if (normalized.errors.length > 0 || !normalized.profile) {
+      alert(
+        `Please complete all required fields before saving:\n- ${Array.from(new Set(normalized.errors)).join("\n- ")}`
+      );
+      return;
+    }
+
     if (experiences.length === 0) {
       alert("Please add at least one experience before continuing.");
       return;
@@ -361,26 +570,12 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       return;
     }
 
-    // grab simple input values by id where native inputs exist
-    const undergrad = (document.getElementById("undergrad") as HTMLInputElement | null)?.value ?? "UC Berkeley";
-    const major = (document.getElementById("major") as HTMLInputElement | null)?.value ?? "Biology";
-    const cumGPA = (document.getElementById("cumGPA") as HTMLInputElement | null)?.value ?? "";
-    const scienceGPA = (document.getElementById("scienceGPA") as HTMLInputElement | null)?.value ?? "";
-    const mcat = (document.getElementById("mcat") as HTMLInputElement | null)?.value ?? "";
-    const gradYear = "2025"; // current UI uses a custom Select component — keep default for now
-
+    // Persist the unified applicant profile as a single payload to avoid academic/demographic overwrite.
     const payload: SubmittedProfilePayload = {
-      name,
       userId: resolvedUserId,
-      undergrad,
-      major,
-      cumGPA,
-      scienceGPA,
-      mcat,
-      gradYear,
+      applicantProfile: normalized.profile,
       experiences,
       extrasScore: experienceScore,
-      demographics,
       essays: {
         personalStatement,
       },
@@ -440,16 +635,15 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
         </p>
       </div>
 
-      <Tabs defaultValue="academic" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="academic">Academic</TabsTrigger>
+      <Tabs defaultValue="profile" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="experiences">Experiences</TabsTrigger>
-          <TabsTrigger value="demographics">Demographics</TabsTrigger>
           <TabsTrigger value="essays">Essays</TabsTrigger>
         </TabsList>
 
-        {/* Academic Tab */}
-        <TabsContent value="academic" className="space-y-6">
+        {/* Unified Profile Tab */}
+        <TabsContent value="profile" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Academic Information</CardTitle>
@@ -463,8 +657,8 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     id="fullName"
                     name="fullName"
                     placeholder="e.g., Jane Doe"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={applicantProfile.academic.fullName}
+                    onChange={(e) => updateAcademic({ fullName: e.target.value })}
                     required
                   />
                 </div>
@@ -475,8 +669,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     id="undergrad"
                     name="undergrad"
                     placeholder="e.g., UC Berkeley"
-                    value={undergrad}
-                    onChange={(e) => setUndergrad(e.target.value)}
+                    value={applicantProfile.academic.undergradInstitution}
+                    onChange={(e) => updateAcademic({ undergradInstitution: e.target.value })}
+                    required
                   />
                 </div>
 
@@ -486,8 +681,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     id="major"
                     name="major"
                     placeholder="e.g., Biology"
-                    value={major}
-                    onChange={(e) => setMajor(e.target.value)}
+                    value={applicantProfile.academic.major}
+                    onChange={(e) => updateAcademic({ major: e.target.value })}
+                    required
                   />
                 </div>
               </div>
@@ -503,8 +699,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="0"
                     max="4.0"
                     placeholder="3.75"
-                    value={cumGPA}
-                    onChange={(e) => setCumGPA(e.target.value)}
+                    value={applicantProfile.academic.cumulativeGPA}
+                    onChange={(e) => updateAcademic({ cumulativeGPA: e.target.value })}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -517,8 +714,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="0"
                     max="4.0"
                     placeholder="3.70"
-                    value={scienceGPA}
-                    onChange={(e) => setScienceGPA(e.target.value)}
+                    value={applicantProfile.academic.scienceGPA}
+                    onChange={(e) => updateAcademic({ scienceGPA: e.target.value })}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -530,8 +728,9 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     min="472"
                     max="528"
                     placeholder="515"
-                    value={mcat}
-                    onChange={(e) => setMcat(e.target.value)}
+                    value={applicantProfile.academic.mcatTotal}
+                    onChange={(e) => updateAcademic({ mcatTotal: e.target.value })}
+                    required
                   />
                 </div>
               </div>
@@ -539,27 +738,79 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="mcatChem">MCAT: Chem/Phys</Label>
-                  <Input id="mcatChem" name="mcatChem" type="number" min="118" max="132" defaultValue="129" />
+                  <Input
+                    id="mcatChem"
+                    name="mcatChem"
+                    type="number"
+                    min="118"
+                    max="132"
+                    value={applicantProfile.academic.mcatBreakdown.chemPhys}
+                    onChange={(e) =>
+                      updateAcademic({
+                        mcatBreakdown: { ...applicantProfile.academic.mcatBreakdown, chemPhys: e.target.value },
+                      })
+                    }
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="mcatCars">MCAT: CARS</Label>
-                  <Input id="mcatCars" name="mcatCars" type="number" min="118" max="132" defaultValue="128" />
+                  <Input
+                    id="mcatCars"
+                    name="mcatCars"
+                    type="number"
+                    min="118"
+                    max="132"
+                    value={applicantProfile.academic.mcatBreakdown.cars}
+                    onChange={(e) =>
+                      updateAcademic({
+                        mcatBreakdown: { ...applicantProfile.academic.mcatBreakdown, cars: e.target.value },
+                      })
+                    }
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="mcatBio">MCAT: Bio/Biochem</Label>
-                  <Input id="mcatBio" name="mcatBio" type="number" min="118" max="132" defaultValue="130" />
+                  <Input
+                    id="mcatBio"
+                    name="mcatBio"
+                    type="number"
+                    min="118"
+                    max="132"
+                    value={applicantProfile.academic.mcatBreakdown.bioBiochem}
+                    onChange={(e) =>
+                      updateAcademic({
+                        mcatBreakdown: { ...applicantProfile.academic.mcatBreakdown, bioBiochem: e.target.value },
+                      })
+                    }
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="mcatPsych">MCAT: Psych/Soc</Label>
-                  <Input id="mcatPsych" name="mcatPsych" type="number" min="118" max="132" defaultValue="128" />
+                  <Input
+                    id="mcatPsych"
+                    name="mcatPsych"
+                    type="number"
+                    min="118"
+                    max="132"
+                    value={applicantProfile.academic.mcatBreakdown.psychSoc}
+                    onChange={(e) =>
+                      updateAcademic({
+                        mcatBreakdown: { ...applicantProfile.academic.mcatBreakdown, psychSoc: e.target.value },
+                      })
+                    }
+                    required
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="gradYear">Expected Graduation Year</Label>
-                <Select value={gradYear} onValueChange={setGradYear}>
+                <Select value={applicantProfile.academic.graduationYear} onValueChange={(value) => updateAcademic({ graduationYear: value })}>
                   <SelectTrigger id="gradYear">
-                    <SelectValue />
+                    <SelectValue placeholder="Select year" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="2024">2024</SelectItem>
@@ -568,6 +819,144 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     <SelectItem value="2027">2027</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Demographics & Preferences</CardTitle>
+              <CardDescription>
+                Required information to support mission fit and regional alignment. Prefer not to say is accepted and neutral.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="age">Age</Label>
+                  <Input
+                    id="age"
+                    type="number"
+                    placeholder="22"
+                    value={applicantProfile.demographics.age}
+                    onChange={(e) => updateDemographics({ age: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="state">State of Residence</Label>
+                  <Select
+                    value={applicantProfile.demographics.stateOfResidence || undefined}
+                    onValueChange={(value) => updateDemographics({ stateOfResidence: value })}
+                  >
+                    <SelectTrigger id="state">
+                      <SelectValue placeholder="Select state" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={PREFER_NOT_TO_SAY}>Prefer not to say</SelectItem>
+                      {stateOptions.map((state) => (
+                        <SelectItem key={state} value={state}>
+                          {state}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="race">Race/Ethnicity</Label>
+                  <Select
+                    value={applicantProfile.demographics.raceEthnicity || undefined}
+                    onValueChange={(value) => updateDemographics({ raceEthnicity: value })}
+                  >
+                    <SelectTrigger id="race">
+                      <SelectValue placeholder="Select race" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Black or African American">Black or African American</SelectItem>
+                      <SelectItem value="Hispanic/Latino">Hispanic/Latino</SelectItem>
+                      <SelectItem value="Native American or Alaska Native">Native American or Alaska Native</SelectItem>
+                      <SelectItem value="Native Hawaiian or Pacific Islander">Native Hawaiian or Pacific Islander</SelectItem>
+                      <SelectItem value="Asian">Asian</SelectItem>
+                      <SelectItem value="White">White</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value={PREFER_NOT_TO_SAY}>Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gender">Gender</Label>
+                  <Select
+                    value={applicantProfile.demographics.gender || undefined}
+                    onValueChange={(value) => updateDemographics({ gender: value })}
+                  >
+                    <SelectTrigger id="gender">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Non-binary">Non-binary</SelectItem>
+                      <SelectItem value={PREFER_NOT_TO_SAY}>Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ses">Socioeconomic Status</Label>
+                  <Select
+                    value={applicantProfile.demographics.socioeconomicStatus || undefined}
+                    onValueChange={(value) => updateDemographics({ socioeconomicStatus: value })}
+                  >
+                    <SelectTrigger id="ses">
+                      <SelectValue placeholder="Select SES" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Disadvantaged">Disadvantaged</SelectItem>
+                      <SelectItem value="Non-disadvantaged">Non-disadvantaged</SelectItem>
+                      <SelectItem value={PREFER_NOT_TO_SAY}>Prefer not to say</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Geographic Preferences (Regions)</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {preferredRegionOptions.map((region) => {
+                    const isActive = applicantProfile.demographics.geographicPreferences?.includes(region);
+                    return (
+                      <Badge
+                        key={region}
+                        variant={isActive ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleDemographicArray("geographicPreferences", region)}
+                      >
+                        {region}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>School Mission Preferences</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {missionPreferenceOptions.map((mission) => {
+                    const isActive = applicantProfile.demographics.missionPreferences?.includes(mission);
+                    return (
+                      <Badge
+                        key={mission}
+                        variant={isActive ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleDemographicArray("missionPreferences", mission)}
+                      >
+                        {mission}
+                      </Badge>
+                    );
+                  })}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -852,145 +1241,6 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
                     <p className="text-sm text-gray-600">Other Hours</p>
                   </div>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Demographics Tab */}
-        <TabsContent value="demographics" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Demographics & Preferences</CardTitle>
-              <CardDescription>
-                Optional information to help with school targeting (not used for discrimination)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="age">Age</Label>
-                  <Input
-                    id="age"
-                    type="number"
-                    placeholder="22"
-                    value={demographics.age ?? ""}
-                    onChange={(e) => setDemographics((prev) => ({ ...prev, age: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="state">State of Residence</Label>
-                  <Select
-                    value={demographics.state ?? undefined}
-                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, state: value }))}
-                  >
-                    <SelectTrigger id="state">
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stateOptions.map((state) => (
-                        <SelectItem key={state} value={state}>
-                          {state}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="race">Race/Ethnicity</Label>
-                  <Select
-                    value={demographics.race ?? undefined}
-                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, race: value }))}
-                  >
-                    <SelectTrigger id="race">
-                      <SelectValue placeholder="Select race" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Black or African American">Black or African American</SelectItem>
-                      <SelectItem value="Hispanic/Latino">Hispanic/Latino</SelectItem>
-                      <SelectItem value="Native American or Alaska Native">Native American or Alaska Native</SelectItem>
-                      <SelectItem value="Native Hawaiian or Pacific Islander">Native Hawaiian or Pacific Islander</SelectItem>
-                      <SelectItem value="Asian">Asian</SelectItem>
-                      <SelectItem value="White">White</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="gender">Gender</Label>
-                  <Select
-                    value={demographics.gender ?? undefined}
-                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, gender: value }))}
-                  >
-                    <SelectTrigger id="gender">
-                      <SelectValue placeholder="Select gender" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Non-binary">Non-binary</SelectItem>
-                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ses">Socioeconomic Status</Label>
-                  <Select
-                    value={demographics.ses ?? undefined}
-                    onValueChange={(value) => setDemographics((prev) => ({ ...prev, ses: value }))}
-                  >
-                    <SelectTrigger id="ses">
-                      <SelectValue placeholder="Select SES" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Disadvantaged">Disadvantaged</SelectItem>
-                      <SelectItem value="Non-disadvantaged">Non-disadvantaged</SelectItem>
-                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Geographic Preferences (Regions)</Label>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {preferredRegionOptions.map((region) => {
-                    const isActive = demographics.preferredRegions?.includes(region);
-                    return (
-                      <Badge
-                        key={region}
-                        variant={isActive ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleDemographicArray("preferredRegions", region)}
-                      >
-                        {region}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>School Mission Preferences</Label>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {missionPreferenceOptions.map((mission) => {
-                    const isActive = demographics.missionPreferences?.includes(mission);
-                    return (
-                      <Badge
-                        key={mission}
-                        variant={isActive ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleDemographicArray("missionPreferences", mission)}
-                      >
-                        {mission}
-                      </Badge>
-                    );
-                  })}
-                </div>
               </div>
             </CardContent>
           </Card>
