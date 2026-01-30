@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Sparkles, AlertCircle, CheckCircle2, Lightbulb, FileText, ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
+import { apiUrl } from "../lib/api";
 
 type ParsedAnalysis = {
   overallImpression: string;
@@ -147,11 +148,12 @@ export default function EssayReview() {
     setAnalyzed(false);
 
     try {
-      const response = await fetch("/api/essay/analyze", {
+      const response = await fetch(apiUrl("/api/essay/analyze"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({ essay: trimmedEssay }),
       });
 

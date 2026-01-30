@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { nanoid } from "nanoid";
@@ -9,13 +10,19 @@ import { z } from "zod";
 import { loadSchoolsCsv, searchSchools, findSchoolById } from "./services/schools.mjs";
 import { computeMatches, parseProfile } from "./services/match.mjs";
 import { OAuth2Client } from "google-auth-library";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const app = express();
 app.use(helmet());
+app.set("trust proxy", 1);
+app.use(cookieParser());
 app.use(express.json());
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173",
+    origin: FRONTEND_URL,
+    credentials: true,
   })
 );
 app.use(
@@ -77,16 +84,36 @@ const schema = z.object({
 });
 
 const adapter = new JSONFile(new URL("./db.json", import.meta.url));
-const defaultData = { profiles: [] };
+const defaultData = { profiles: [], users: [] };
 const db = new Low(adapter, defaultData);
 await db.read();
 // ensure data is initialized
 db.data ||= defaultData;
+db.data.users ||= [];
+db.data.profiles ||= [];
 
 const DEFAULT_MATCH_LIMIT = 30;
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
-const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+const SESSION_JWT_SECRET = process.env.SESSION_JWT_SECRET || (process.env.NODE_ENV === "production" ? null : "dev-session-secret");
+const SESSION_COOKIE_NAME = "medadmit_session";
+const STATE_COOKIE_NAME = "medadmit_oauth_state";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const isProd = process.env.NODE_ENV === "production";
+const oauthConfigured = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
+const oauthClient = oauthConfigured ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI) : null;
+const baseCookieOptions = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: "lax",
+  path: "/",
+};
+
+if (!SESSION_JWT_SECRET) {
+  throw new Error("SESSION_JWT_SECRET must be set in production.");
+}
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ENTER_API_KEY_HERE";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
@@ -136,81 +163,210 @@ const essayAnalyzeSchema = z.object({
 });
 
 async function verifyGoogleIdToken(idToken) {
-  if (!oauthClient) {
-    throw new Error("Google auth is not configured (set GOOGLE_CLIENT_ID)");
+  if (!oauthClient || !GOOGLE_CLIENT_ID) {
+    throw new Error("Google OAuth is not configured");
   }
   const ticket = await oauthClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
   const payload = ticket.getPayload();
   if (!payload?.sub) throw new Error("Invalid id token payload");
   return {
-    userId: payload.sub,
+    googleSub: payload.sub,
     email: payload.email,
     name: payload.name,
     picture: payload.picture,
   };
 }
 
-function resolveUserId(req) {
-  return (
-    req.headers["x-user-id"]?.toString() ||
-    req.body?.userId?.toString?.() ||
-    req.params?.userId?.toString?.() ||
-    req.query?.userId?.toString?.() ||
-    null
-  );
+function signSession(userId) {
+  return jwt.sign({ sub: userId }, SESSION_JWT_SECRET, { expiresIn: "7d" });
+}
+
+function setSessionCookie(res, userId) {
+  const token = signSession(userId);
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    ...baseCookieOptions,
+    maxAge: SESSION_TTL_MS,
+  });
+}
+
+function clearSessionCookie(res) {
+  res.clearCookie(SESSION_COOKIE_NAME, baseCookieOptions);
+}
+
+function getSessionPayload(req) {
+  const token = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!token) return null;
+  try {
+    return jwt.verify(token, SESSION_JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+}
+
+async function findUserById(userId) {
+  await db.read();
+  return db.data.users.find((user) => user.id === userId);
+}
+
+async function upsertGoogleUser({ googleSub, email, name, picture }) {
+  await db.read();
+  const now = new Date().toISOString();
+  let user = db.data.users.find((entry) => entry.googleSub === googleSub);
+  if (user) {
+    user.email = email ?? user.email;
+    user.name = name ?? user.name;
+    user.pictureUrl = picture ?? user.pictureUrl;
+    user.lastLoginAt = now;
+  } else {
+    user = {
+      id: nanoid(),
+      googleSub,
+      email,
+      name,
+      pictureUrl: picture,
+      authProvider: "google",
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    db.data.users.push(user);
+  }
+  await db.write();
+  return user;
+}
+
+async function createDevUser({ name, email }) {
+  await db.read();
+  const now = new Date().toISOString();
+  const user = {
+    id: nanoid(),
+    googleSub: null,
+    email,
+    name,
+    pictureUrl: null,
+    authProvider: "dev",
+    createdAt: now,
+    lastLoginAt: now,
+  };
+  db.data.users.push(user);
+  await db.write();
+  return user;
 }
 
 async function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-
-  if (oauthClient && header?.startsWith("Bearer ")) {
-    const token = header.replace(/^Bearer\s+/i, "");
-    try {
-      const user = await verifyGoogleIdToken(token);
-      req.authUser = user;
-      req.userId = user.userId;
-    } catch (err) {
-      console.error("Auth failed", err.message);
-      return res.status(401).json({ error: "Invalid Google ID token" });
-    }
+  const session = getSessionPayload(req);
+  if (!session?.sub) {
+    return res.status(401).json({ error: "Authentication required" });
   }
-
-  if (!req.userId) {
-    const fallback = resolveUserId(req);
-    if (!fallback) return res.status(400).json({ error: "userId required" });
-    req.userId = fallback;
+  const user = await findUserById(session.sub);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid session" });
   }
-
+  req.authUser = user;
+  req.userId = user.id;
   next();
 }
 
-async function attachAuthIfPresent(req, res, next) {
-  if (oauthClient) {
-    const header = req.headers.authorization;
-    if (header) {
-      if (!header.startsWith("Bearer ")) {
-        return res.status(401).json({ error: "Invalid Authorization header" });
-      }
-      try {
-        const user = await verifyGoogleIdToken(header.replace(/^Bearer\s+/i, ""));
-        req.authUser = user;
-        req.userId = user.userId;
-      } catch (err) {
-        console.error("Optional auth failed", err.message);
-        return res.status(401).json({ error: "Invalid Google ID token" });
-      }
-    }
+app.get("/api/auth/google/start", (req, res) => {
+  if (!oauthConfigured || !oauthClient) {
+    return res.status(500).json({ error: "Google OAuth is not configured" });
   }
 
-  if (!req.userId) {
-    const fallback = resolveUserId(req);
-    if (fallback) {
-      req.userId = fallback;
-    }
+  const state = crypto.randomBytes(32).toString("hex");
+  res.cookie(STATE_COOKIE_NAME, state, {
+    ...baseCookieOptions,
+    maxAge: 10 * 60 * 1000,
+  });
+
+  const authorizeUrl = oauthClient.generateAuthUrl({
+    access_type: "offline",
+    scope: ["openid", "email", "profile"],
+    prompt: "select_account",
+    state,
+  });
+
+  return res.redirect(authorizeUrl);
+});
+
+app.get("/api/auth/google/callback", async (req, res) => {
+  if (!oauthConfigured || !oauthClient) {
+    return res.status(500).json({ error: "Google OAuth is not configured" });
   }
 
-  next();
-}
+  const state = req.query.state?.toString();
+  const code = req.query.code?.toString();
+  const storedState = req.cookies?.[STATE_COOKIE_NAME];
+
+  if (!state || !storedState || state !== storedState) {
+    return res.status(400).json({ error: "Invalid OAuth state" });
+  }
+
+  if (!code) {
+    return res.status(400).json({ error: "Missing OAuth code" });
+  }
+
+  res.clearCookie(STATE_COOKIE_NAME, baseCookieOptions);
+
+  try {
+    const { tokens } = await oauthClient.getToken(code);
+    if (!tokens?.id_token) {
+      return res.status(400).json({ error: "Missing id_token from Google" });
+    }
+
+    const googleUser = await verifyGoogleIdToken(tokens.id_token);
+    const user = await upsertGoogleUser(googleUser);
+
+    setSessionCookie(res, user.id);
+    return res.redirect(`${FRONTEND_URL}/dashboard`);
+  } catch (err) {
+    console.error("OAuth callback failed", err);
+    return res.status(500).json({ error: "Google OAuth failed" });
+  }
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  const session = getSessionPayload(req);
+  if (!session?.sub) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  const user = await findUserById(session.sub);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+  return res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      pictureUrl: user.pictureUrl,
+    },
+  });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  clearSessionCookie(res);
+  return res.status(200).json({ ok: true });
+});
+
+app.post("/api/auth/dev-login", async (req, res) => {
+  const devFallbackEnabled =
+    (process.env.DEV_AUTH === "true" || process.env.NODE_ENV === "development") && !oauthConfigured;
+  if (!devFallbackEnabled) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const name = req.body?.name?.toString().trim() || "Dev User";
+  const email = req.body?.email?.toString().trim() || `dev-${nanoid(6)}@example.local`;
+  const user = await createDevUser({ name, email });
+  setSessionCookie(res, user.id);
+  return res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      pictureUrl: user.pictureUrl,
+    },
+  });
+});
 
 function coerceLimit(rawLimit, fallback = DEFAULT_MATCH_LIMIT) {
   const limit = Number.parseInt(rawLimit ?? fallback, 10);
@@ -295,7 +451,7 @@ app.get("/api/schools/:id", (req, res) => {
   res.json({ school: s });
 });
 
-app.post("/api/match", attachAuthIfPresent, async (req, res) => {
+app.post("/api/match", requireAuth, async (req, res) => {
   const safeLimit = coerceLimit(req.body?.limit);
 
   let profileInput = req.body?.profile ?? req.body ?? {};
@@ -320,7 +476,7 @@ app.post("/api/match", attachAuthIfPresent, async (req, res) => {
   res.json({ matches });
 });
 
-app.get("/api/match", attachAuthIfPresent, async (req, res) => {
+app.get("/api/match", requireAuth, async (req, res) => {
   const safeLimit = coerceLimit(req.query.limit);
 
   let profileInput = {

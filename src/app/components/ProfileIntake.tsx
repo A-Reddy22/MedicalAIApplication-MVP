@@ -15,11 +15,11 @@ import {
   PreferNotToSay,
   SubmittedProfilePayload,
 } from "../types";
+import { apiUrl } from "../lib/api";
 
 interface ProfileIntakeProps {
   onMatchesGenerated?: (matches: MatchResult[]) => void;
   onProfileSaved?: (profile: SubmittedProfilePayload & { id?: string }) => void;
-  userId?: string;
   defaultName?: string;
   profile?: (SubmittedProfilePayload & { id?: string }) | null;
 }
@@ -53,8 +53,7 @@ type ApplicantProfileDraft = {
 
 const PREFER_NOT_TO_SAY: PreferNotToSay = "prefer_not_to_say";
 
-export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, userId, defaultName, profile }: ProfileIntakeProps) {
-  const resolvedUserId = userId ?? "demo-user";
+export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, defaultName, profile }: ProfileIntakeProps) {
   const [applicantProfile, setApplicantProfile] = useState<ApplicantProfileDraft>(() => ({
     academic: {
       fullName: defaultName ?? "",
@@ -572,7 +571,6 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
 
     // Persist the unified applicant profile as a single payload to avoid academic/demographic overwrite.
     const payload: SubmittedProfilePayload = {
-      userId: resolvedUserId,
       applicantProfile: normalized.profile,
       experiences,
       extrasScore: experienceScore,
@@ -583,9 +581,10 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
     };
 
     try {
-      const res = await fetch("/api/profile", {
+      const res = await fetch(apiUrl("/api/profile"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -602,10 +601,11 @@ export default function ProfileIntake({ onMatchesGenerated, onProfileSaved, user
       const profileId: string | undefined = data.id;
       alert("Profile saved (id: " + (profileId ?? "unknown") + ")");
 
-      const matchRes = await fetch("/api/match", {
+      const matchRes = await fetch(apiUrl("/api/match"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, profile: payload, limit: 30, userId: resolvedUserId }),
+        credentials: "include",
+        body: JSON.stringify({ profileId, profile: payload, limit: 30 }),
       });
 
       if (!matchRes.ok) {
