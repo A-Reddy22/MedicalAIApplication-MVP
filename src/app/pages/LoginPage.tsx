@@ -9,13 +9,31 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { user, loading, refresh } = useAuth();
   const [devName, setDevName] = useState("Dev User");
+  const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
+  const [devAuthEnabled, setDevAuthEnabled] = useState(false);
 
   const googleStartUrl = useMemo(() => apiUrl("/api/auth/google/start"), []);
 
-  const devFallbackEnabled =
-    import.meta.env.DEV &&
-    !import.meta.env.VITE_GOOGLE_CLIENT_ID &&
-    (import.meta.env.VITE_DEV_AUTH === "true" || import.meta.env.DEV);
+  useEffect(() => {
+    const loadAuthConfig = async () => {
+      try {
+        const response = await fetch(apiUrl("/api/auth/config"), { credentials: "include" });
+        if (!response.ok) {
+          setOauthConfigured(false);
+          setDevAuthEnabled(import.meta.env.DEV);
+          return;
+        }
+        const data = await response.json();
+        setOauthConfigured(Boolean(data.oauthConfigured));
+        setDevAuthEnabled(Boolean(data.devFallbackEnabled));
+      } catch {
+        setOauthConfigured(false);
+        setDevAuthEnabled(import.meta.env.DEV);
+      }
+    };
+
+    loadAuthConfig();
+  }, []);
 
   useEffect(() => {
     if (!loading && user) {
@@ -60,7 +78,14 @@ export default function LoginPage() {
         Continue with Google
       </Button>
 
-      {devFallbackEnabled ? (
+      {oauthConfigured === false ? (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+          Google OAuth is not configured on the backend yet. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and
+          GOOGLE_REDIRECT_URI in your backend env.
+        </p>
+      ) : null}
+
+      {devAuthEnabled ? (
         <div className="border-t border-gray-200 pt-4 space-y-3">
           <p className="text-xs text-gray-500">
             Google OAuth is not configured. Use dev mode only for local testing.

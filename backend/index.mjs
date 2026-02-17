@@ -12,9 +12,34 @@ import { computeMatches, parseProfile } from "./services/match.mjs";
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import dotenv from "dotenv";
+import { existsSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// Load local environment variables from backend/.env when present
-import 'dotenv/config';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, "..");
+
+function loadBackendEnv() {
+  const candidateEnvFiles = [
+    path.join(repoRoot, ".env"),
+    path.join(repoRoot, ".env.local"),
+    path.join(__dirname, ".env"),
+    path.join(__dirname, ".env.local"),
+  ];
+
+  const loaded = [];
+  for (const envPath of candidateEnvFiles) {
+    if (!existsSync(envPath)) continue;
+    dotenv.config({ path: envPath, override: true, quiet: true });
+    loaded.push(path.relative(repoRoot, envPath) || ".env");
+  }
+
+  return loaded;
+}
+
+const loadedEnvFiles = loadBackendEnv();
 
 const app = express();
 app.use(helmet());
@@ -107,6 +132,9 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const isProd = process.env.NODE_ENV === "production";
 const oauthConfigured = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
 const oauthClient = oauthConfigured ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI) : null;
+const missingOauthVars = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"].filter(
+  (name) => !process.env[name]
+);
 const baseCookieOptions = {
   httpOnly: true,
   secure: isProd,
@@ -117,6 +145,9 @@ const baseCookieOptions = {
 if (!SESSION_JWT_SECRET) {
   throw new Error("SESSION_JWT_SECRET must be set in production.");
 }
+
+console.log("dotenv loaded files=", loadedEnvFiles.length ? loadedEnvFiles.join(", ") : "none");
+console.log("oauthConfigured=", oauthConfigured);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ENTER_API_KEY_HERE";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
@@ -271,7 +302,9 @@ async function requireAuth(req, res, next) {
 
 app.get("/api/auth/google/start", (req, res) => {
   if (!oauthConfigured || !oauthClient) {
-    return res.status(500).json({ error: "Google OAuth is not configured" });
+    return res.status(503).json({
+      error: `Google OAuth is not configured on the server. Missing: ${missingOauthVars.join(", ")}`,
+    });
   }
 
   const state = crypto.randomBytes(32).toString("hex");
@@ -292,7 +325,9 @@ app.get("/api/auth/google/start", (req, res) => {
 
 app.get("/api/auth/google/callback", async (req, res) => {
   if (!oauthConfigured || !oauthClient) {
-    return res.status(500).json({ error: "Google OAuth is not configured" });
+    return res.status(503).json({
+      error: `Google OAuth is not configured on the server. Missing: ${missingOauthVars.join(", ")}`,
+    });
   }
 
   const state = req.query.state?.toString();
@@ -321,12 +356,41 @@ app.get("/api/auth/google/callback", async (req, res) => {
     setSessionCookie(res, user.id);
     return res.redirect(`${FRONTEND_URL}/dashboard`);
   } catch (err) {
-    console.error("OAuth callback failed", err);
+    console.error("OAuth callback failed", err?.message ?? "unknown error");
     return res.status(500).json({ error: "Google OAuth failed" });
   }
 });
 
+app.get("/api/auth/config", (req, res) => {
+  const devFallbackEnabled =
+    (process.env.DEV_AUTH === "true" || process.env.NODE_ENV === "development") && !oauthConfigured;
+  return res.json({
+    oauthConfigured,
+    devFallbackEnabled,
+    hasFrontendUrl: Boolean(FRONTEND_URL),
+  });
+});
+
 app.get("/api/auth/me", async (req, res) => {
+  const session = getSessionPayload(req);
+  if (!session?.sub) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  const user = await findUserById(session.sub);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+  return res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      pictureUrl: user.pictureUrl,
+    },
+  });
+});
+
+app.get("/api/me", async (req, res) => {
   const session = getSessionPayload(req);
   if (!session?.sub) {
     return res.status(401).json({ error: "Not authenticated" });

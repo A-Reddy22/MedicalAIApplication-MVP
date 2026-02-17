@@ -17,3 +17,9 @@ backend/db.json
 dist/
 build/
 client_secret_2_1027667658622-c8psllajpmgv3gvitv6fd32evl7o51h7.apps.googleusercontent.com.json
+# extra secret safeguards
+backend/.env
+backend/.env.local
+backend/.env.*.local
+client_secret_*.json
+**/client_secret_*.json
