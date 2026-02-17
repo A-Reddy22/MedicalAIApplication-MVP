@@ -13,7 +13,7 @@ import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import dotenv from "dotenv";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -22,6 +22,13 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 function loadBackendEnv() {
+  const trackedEnvKeys = [
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "FRONTEND_URL",
+    "SESSION_JWT_SECRET",
+  ];
   const candidateEnvFiles = [
     path.join(repoRoot, ".env"),
     path.join(repoRoot, ".env.local"),
@@ -30,16 +37,30 @@ function loadBackendEnv() {
   ];
 
   const loaded = [];
+  const envKeySources = {};
   for (const envPath of candidateEnvFiles) {
     if (!existsSync(envPath)) continue;
+    const envLabel = path.relative(repoRoot, envPath) || ".env";
+    try {
+      const parsed = dotenv.parse(readFileSync(envPath));
+      for (const key of trackedEnvKeys) {
+        if (parsed[key] !== undefined && String(parsed[key]).trim() !== "") {
+          envKeySources[key] = envLabel;
+        }
+      }
+    } catch {
+      // Ignore parse metadata errors and continue loading dotenv normally.
+    }
     dotenv.config({ path: envPath, override: true, quiet: true });
-    loaded.push(path.relative(repoRoot, envPath) || ".env");
+    loaded.push(envLabel);
   }
 
-  return loaded;
+  return { loaded, envKeySources };
 }
 
-const loadedEnvFiles = loadBackendEnv();
+const envMetadata = loadBackendEnv();
+const loadedEnvFiles = envMetadata.loaded;
+const envKeySources = envMetadata.envKeySources;
 
 const app = express();
 app.use(helmet());
@@ -125,7 +146,9 @@ const DEFAULT_MATCH_LIMIT = 30;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
-const DEBUG_OAUTH = process.env.DEBUG_OAUTH === "true";
+const DEBUG_OAUTH =
+  process.env.DEBUG_OAUTH === "true" ||
+  (process.env.DEBUG_OAUTH !== "false" && process.env.NODE_ENV !== "production");
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const SESSION_JWT_SECRET = process.env.SESSION_JWT_SECRET || (process.env.NODE_ENV === "production" ? null : "dev-session-secret");
@@ -144,6 +167,13 @@ const baseCookieOptions = {
   sameSite: "lax",
   path: "/",
 };
+const oauthEnvKeySources = {
+  GOOGLE_CLIENT_ID: envKeySources.GOOGLE_CLIENT_ID ?? "process-env-only",
+  GOOGLE_CLIENT_SECRET: envKeySources.GOOGLE_CLIENT_SECRET ?? "process-env-only",
+  GOOGLE_REDIRECT_URI: envKeySources.GOOGLE_REDIRECT_URI ?? "process-env-only",
+};
+const oauthSourceSet = new Set(Object.values(oauthEnvKeySources));
+const mixedOauthEnvSources = oauthSourceSet.size > 1;
 
 function oauthDebugLog(event, details = {}) {
   if (!DEBUG_OAUTH) return;
@@ -201,6 +231,40 @@ function getErrorSummary(err) {
     status: Number.isFinite(err?.status) ? err.status : null,
     message: err?.message ?? "unknown error",
   };
+}
+
+function shouldRedirectOAuthFailure(req) {
+  const acceptHeader = req.get("accept") ?? "";
+  return acceptHeader.includes("text/html");
+}
+
+function buildFrontendLoginRedirect(reason) {
+  try {
+    const target = new URL("/login", FRONTEND_URL);
+    if (reason) {
+      target.searchParams.set("authError", reason);
+    }
+    return target.toString();
+  } catch {
+    const fallbackReason = reason ? `?authError=${encodeURIComponent(reason)}` : "";
+    return `${FRONTEND_URL}/login${fallbackReason}`;
+  }
+}
+
+function respondOAuthFailure(req, res, { status = 500, error = "Google OAuth failed", reason = "oauth_failed" } = {}) {
+  if (shouldRedirectOAuthFailure(req)) {
+    const location = buildFrontendLoginRedirect(reason);
+    oauthDebugLog("callback_frontend_redirect_on_error", {
+      status,
+      reason,
+      location,
+    });
+    return res.redirect(location);
+  }
+
+  const payload = { error };
+  if (DEBUG_OAUTH) payload.reason = reason;
+  return res.status(status).json(payload);
 }
 
 async function exchangeCodeForTokens({ code, redirectUri }) {
@@ -294,6 +358,13 @@ if (!SESSION_JWT_SECRET) {
 console.log("dotenv loaded files=", loadedEnvFiles.length ? loadedEnvFiles.join(", ") : "none");
 console.log("oauthConfigured=", oauthConfigured);
 console.log("debugOauth=", DEBUG_OAUTH);
+console.log("oauthEnvSources=", oauthEnvKeySources);
+if (mixedOauthEnvSources) {
+  console.warn(
+    "OAuth env keys are sourced from multiple files. Ensure GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REDIRECT_URI come from one file.",
+    oauthEnvKeySources
+  );
+}
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ENTER_API_KEY_HERE";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
@@ -505,9 +576,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
       error: oauthError,
       errorDescription: oauthErrorDescription ? oauthErrorDescription.slice(0, 200) : null,
     });
-    return res.status(400).json({
+    return respondOAuthFailure(req, res, {
+      status: 400,
       error: "Google OAuth was not completed",
-      reason: oauthError,
+      reason: `google_${oauthError}`,
     });
   }
 
@@ -517,11 +589,19 @@ app.get("/api/auth/google/callback", async (req, res) => {
       hasStoredState: Boolean(storedState),
       stateMatches: Boolean(state && storedState && state === storedState),
     });
-    return res.status(400).json({ error: "Invalid OAuth state" });
+    return respondOAuthFailure(req, res, {
+      status: 400,
+      error: "Invalid OAuth state",
+      reason: "invalid_state",
+    });
   }
 
   if (!code) {
-    return res.status(400).json({ error: "Missing OAuth code" });
+    return respondOAuthFailure(req, res, {
+      status: 400,
+      error: "Missing OAuth code",
+      reason: "missing_code",
+    });
   }
 
   res.clearCookie(STATE_COOKIE_NAME, baseCookieOptions);
@@ -537,7 +617,11 @@ app.get("/api/auth/google/callback", async (req, res) => {
         hasAccessToken: Boolean(tokens?.access_token),
         scope: tokens?.scope ?? null,
       });
-      return res.status(400).json({ error: "Missing id_token from Google" });
+      return respondOAuthFailure(req, res, {
+        status: 400,
+        error: "Missing id_token from Google",
+        reason: "missing_id_token",
+      });
     }
 
     const googleUser = await verifyGoogleIdToken(tokens.id_token);
@@ -576,13 +660,25 @@ app.get("/api/auth/google/callback", async (req, res) => {
     return res.redirect(frontendRedirectUrl);
   } catch (err) {
     const errorSummary = getErrorSummary(err);
+    const upstreamErrorCode = err?.responsePayload?.error;
+    const reasonMap = {
+      GoogleTokenExchangeError: "token_exchange_failed",
+      GoogleProfileFetchError: "profile_fetch_failed",
+      JsonWebTokenError: "session_sign_failed",
+    };
+    const reason = reasonMap[errorSummary.name] || "callback_failed";
     oauthDebugLog("callback_failed", {
       ...errorSummary,
       tokenRequest: err?.tokenRequestMeta ?? null,
       tokenResponsePayload: sanitizeTokenPayload(err?.responsePayload ?? null),
+      reason,
     });
     console.error("OAuth callback failed", errorSummary);
-    return res.status(500).json({ error: "Google OAuth failed" });
+    return respondOAuthFailure(req, res, {
+      status: 500,
+      error: "Google OAuth failed",
+      reason: upstreamErrorCode ? `${reason}:${upstreamErrorCode}` : reason,
+    });
   }
 });
 
@@ -603,6 +699,9 @@ app.get("/api/debug/oauth", (req, res) => {
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,
     frontendUrl: FRONTEND_URL ?? null,
+    debugOauth: DEBUG_OAUTH,
+    mixedOauthEnvSources,
+    oauthEnvKeySources,
   });
 });
 
