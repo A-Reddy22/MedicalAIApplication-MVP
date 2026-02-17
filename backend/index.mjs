@@ -747,10 +747,17 @@ app.get("/api/auth/google/callback", async (req, res) => {
 app.get("/api/auth/config", (req, res) => {
   const devFallbackEnabled =
     (process.env.DEV_AUTH === "true" || process.env.NODE_ENV === "development") && !oauthConfigured;
+  const configIssue = getOAuthConfigurationIssue(req);
   return res.json({
     oauthConfigured,
     devFallbackEnabled,
     hasFrontendUrl: Boolean(FRONTEND_URL),
+    oauthIssue: configIssue
+      ? {
+          reason: configIssue.reason,
+          message: configIssue.error,
+        }
+      : null,
   });
 });
 

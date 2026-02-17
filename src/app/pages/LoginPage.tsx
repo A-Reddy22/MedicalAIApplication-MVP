@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [devName, setDevName] = useState("Dev User");
   const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
   const [devAuthEnabled, setDevAuthEnabled] = useState(false);
+  const [oauthIssueMessage, setOauthIssueMessage] = useState<string | null>(null);
 
   const googleStartUrl = useMemo(() => apiUrl("/api/auth/google/start"), []);
   const authError = searchParams.get("authError");
@@ -43,14 +44,17 @@ export default function LoginPage() {
         if (!response.ok) {
           setOauthConfigured(false);
           setDevAuthEnabled(import.meta.env.DEV);
+          setOauthIssueMessage(null);
           return;
         }
         const data = await response.json();
         setOauthConfigured(Boolean(data.oauthConfigured));
         setDevAuthEnabled(Boolean(data.devFallbackEnabled));
+        setOauthIssueMessage(data?.oauthIssue?.message ? String(data.oauthIssue.message) : null);
       } catch {
         setOauthConfigured(false);
         setDevAuthEnabled(import.meta.env.DEV);
+        setOauthIssueMessage(null);
       }
     };
 
@@ -109,6 +113,10 @@ export default function LoginPage() {
           Google OAuth is not configured on the backend yet. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and
           GOOGLE_REDIRECT_URI in your backend env.
         </p>
+      ) : null}
+
+      {oauthIssueMessage ? (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">{oauthIssueMessage}</p>
       ) : null}
 
       {devAuthEnabled ? (
