@@ -13,6 +13,9 @@ import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
+// Load local environment variables from backend/.env when present
+import 'dotenv/config';
+
 const app = express();
 app.use(helmet());
 app.set("trust proxy", 1);
