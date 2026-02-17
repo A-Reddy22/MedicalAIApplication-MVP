@@ -234,8 +234,17 @@ function getErrorSummary(err) {
 }
 
 function shouldRedirectOAuthFailure(req) {
-  const acceptHeader = req.get("accept") ?? "";
-  return acceptHeader.includes("text/html");
+  const formatHint = req.query?.format?.toString().toLowerCase();
+  if (formatHint === "json") return false;
+
+  const requestedWith = (req.get("x-requested-with") ?? "").toLowerCase();
+  if (requestedWith === "xmlhttprequest") return false;
+
+  const acceptHeader = (req.get("accept") ?? "").toLowerCase();
+  if (!acceptHeader || acceptHeader === "*/*") return true;
+  if (acceptHeader.includes("text/html")) return true;
+  if (acceptHeader.includes("application/json") && !acceptHeader.includes("text/html")) return false;
+  return true;
 }
 
 function buildFrontendLoginRedirect(reason) {
@@ -262,9 +271,59 @@ function respondOAuthFailure(req, res, { status = 500, error = "Google OAuth fai
     return res.redirect(location);
   }
 
-  const payload = { error };
-  if (DEBUG_OAUTH) payload.reason = reason;
+  const payload = { error, reason };
   return res.status(status).json(payload);
+}
+
+function getOAuthConfigurationIssue(req) {
+  if (!oauthConfigured || !oauthClient) {
+    return {
+      status: 503,
+      error: `Google OAuth is not configured on the server. Missing: ${missingOauthVars.join(", ")}`,
+      reason: "oauth_not_configured",
+    };
+  }
+
+  if (mixedOauthEnvSources) {
+    return {
+      status: 500,
+      error:
+        "Google OAuth configuration is split across multiple env files. Keep GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in one env file.",
+      reason: "oauth_env_source_conflict",
+    };
+  }
+
+  if (!GOOGLE_REDIRECT_URI) {
+    return {
+      status: 500,
+      error: "GOOGLE_REDIRECT_URI is missing.",
+      reason: "missing_redirect_uri",
+    };
+  }
+
+  try {
+    const configured = new URL(GOOGLE_REDIRECT_URI);
+    const reqProtocol = req.protocol || "http";
+    const reqHost = req.get("host") || "";
+    const expectedOrigin = reqHost ? `${reqProtocol}://${reqHost}` : configured.origin;
+
+    // This mismatch is a high-signal source of invalid_grant at token exchange.
+    if (configured.origin !== expectedOrigin) {
+      return {
+        status: 500,
+        error: `GOOGLE_REDIRECT_URI origin (${configured.origin}) does not match current backend origin (${expectedOrigin}).`,
+        reason: "redirect_origin_mismatch",
+      };
+    }
+  } catch {
+    return {
+      status: 500,
+      error: "GOOGLE_REDIRECT_URI is not a valid URL.",
+      reason: "invalid_redirect_uri",
+    };
+  }
+
+  return null;
 }
 
 async function exchangeCodeForTokens({ code, redirectUri }) {
@@ -518,9 +577,12 @@ async function requireAuth(req, res, next) {
 }
 
 app.get("/api/auth/google/start", (req, res) => {
-  if (!oauthConfigured || !oauthClient) {
-    return res.status(503).json({
-      error: `Google OAuth is not configured on the server. Missing: ${missingOauthVars.join(", ")}`,
+  const configIssue = getOAuthConfigurationIssue(req);
+  if (configIssue) {
+    oauthDebugLog("oauth_start_config_issue", configIssue);
+    return res.status(configIssue.status).json({
+      error: configIssue.error,
+      reason: configIssue.reason,
     });
   }
 
@@ -549,10 +611,10 @@ app.get("/api/auth/google/start", (req, res) => {
 });
 
 app.get("/api/auth/google/callback", async (req, res) => {
-  if (!oauthConfigured || !oauthClient) {
-    return res.status(503).json({
-      error: `Google OAuth is not configured on the server. Missing: ${missingOauthVars.join(", ")}`,
-    });
+  const configIssue = getOAuthConfigurationIssue(req);
+  if (configIssue) {
+    oauthDebugLog("oauth_callback_config_issue", configIssue);
+    return respondOAuthFailure(req, res, configIssue);
   }
 
   const state = req.query.state?.toString();
