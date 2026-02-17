@@ -125,6 +125,9 @@ const DEFAULT_MATCH_LIMIT = 30;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+const DEBUG_OAUTH = process.env.DEBUG_OAUTH === "true";
+const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+const GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const SESSION_JWT_SECRET = process.env.SESSION_JWT_SECRET || (process.env.NODE_ENV === "production" ? null : "dev-session-secret");
 const SESSION_COOKIE_NAME = "medadmit_session";
 const STATE_COOKIE_NAME = "medadmit_oauth_state";
@@ -142,12 +145,155 @@ const baseCookieOptions = {
   path: "/",
 };
 
+function oauthDebugLog(event, details = {}) {
+  if (!DEBUG_OAUTH) return;
+  console.info(`[oauth-debug] ${event}`, details);
+}
+
+function sanitizeTokenPayload(payload) {
+  const secretLikeKeys = new Set([
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "client_secret",
+    "code",
+    "token",
+  ]);
+
+  if (Array.isArray(payload)) {
+    return payload.map((entry) => sanitizeTokenPayload(entry));
+  }
+
+  if (payload && typeof payload === "object") {
+    return Object.fromEntries(
+      Object.entries(payload).map(([key, value]) => {
+        if (secretLikeKeys.has(key)) {
+          return [key, "[REDACTED]"];
+        }
+        return [key, sanitizeTokenPayload(value)];
+      })
+    );
+  }
+
+  if (typeof payload === "string") {
+    return payload
+      .replace(/("access_token"\s*:\s*")[^"]*(")/gi, "$1[REDACTED]$2")
+      .replace(/("refresh_token"\s*:\s*")[^"]*(")/gi, "$1[REDACTED]$2")
+      .replace(/("id_token"\s*:\s*")[^"]*(")/gi, "$1[REDACTED]$2");
+  }
+
+  return payload;
+}
+
+function parseJsonSafe(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function getErrorSummary(err) {
+  return {
+    name: err?.name ?? "Error",
+    code: err?.code ?? null,
+    status: Number.isFinite(err?.status) ? err.status : null,
+    message: err?.message ?? "unknown error",
+  };
+}
+
+async function exchangeCodeForTokens({ code, redirectUri }) {
+  const body = new URLSearchParams({
+    code,
+    client_id: GOOGLE_CLIENT_ID,
+    client_secret: GOOGLE_CLIENT_SECRET,
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  });
+
+  oauthDebugLog("token_exchange_request", {
+    endpoint: GOOGLE_TOKEN_ENDPOINT,
+    params: { keys: [...body.keys()], redirect_uri: redirectUri },
+  });
+
+  const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  const responseText = await response.text();
+  const parsedResponse = parseJsonSafe(responseText);
+  const responsePayload = parsedResponse ?? responseText;
+
+  if (!response.ok) {
+    const error = new Error("Google token exchange failed");
+    error.name = "GoogleTokenExchangeError";
+    error.status = response.status;
+    error.responsePayload = responsePayload;
+    error.tokenRequestMeta = {
+      endpoint: GOOGLE_TOKEN_ENDPOINT,
+      params: { keys: [...body.keys()], redirect_uri: redirectUri },
+    };
+    throw error;
+  }
+
+  if (!parsedResponse || typeof parsedResponse !== "object") {
+    const error = new Error("Google token exchange response was not valid JSON");
+    error.name = "GoogleTokenExchangeError";
+    error.status = response.status;
+    error.responsePayload = responsePayload;
+    throw error;
+  }
+
+  return parsedResponse;
+}
+
+async function getGoogleProfile(accessToken) {
+  const response = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const responseText = await response.text();
+  const parsedResponse = parseJsonSafe(responseText);
+  const responsePayload = parsedResponse ?? responseText.slice(0, 300);
+
+  if (!response.ok) {
+    const error = new Error("Google profile fetch failed");
+    error.name = "GoogleProfileFetchError";
+    error.status = response.status;
+    error.responsePayload = responsePayload;
+    throw error;
+  }
+
+  if (!parsedResponse || typeof parsedResponse !== "object") {
+    const error = new Error("Google profile response was not valid JSON");
+    error.name = "GoogleProfileFetchError";
+    error.status = response.status;
+    error.responsePayload = responsePayload;
+    throw error;
+  }
+
+  return {
+    googleSub: parsedResponse.sub ?? null,
+    email: parsedResponse.email ?? null,
+    name: parsedResponse.name ?? null,
+    picture: parsedResponse.picture ?? null,
+  };
+}
+
 if (!SESSION_JWT_SECRET) {
   throw new Error("SESSION_JWT_SECRET must be set in production.");
 }
 
 console.log("dotenv loaded files=", loadedEnvFiles.length ? loadedEnvFiles.join(", ") : "none");
 console.log("oauthConfigured=", oauthConfigured);
+console.log("debugOauth=", DEBUG_OAUTH);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ENTER_API_KEY_HERE";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
@@ -318,6 +464,14 @@ app.get("/api/auth/google/start", (req, res) => {
     scope: ["openid", "email", "profile"],
     prompt: "select_account",
     state,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+  });
+
+  oauthDebugLog("start_redirect", {
+    path: req.path,
+    host: req.get("host") ?? null,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    hasStateCookie: true,
   });
 
   return res.redirect(authorizeUrl);
@@ -332,9 +486,37 @@ app.get("/api/auth/google/callback", async (req, res) => {
 
   const state = req.query.state?.toString();
   const code = req.query.code?.toString();
+  const oauthError = req.query.error?.toString();
+  const oauthErrorDescription = req.query.error_description?.toString();
   const storedState = req.cookies?.[STATE_COOKIE_NAME];
 
+  oauthDebugLog("callback_received", {
+    path: req.path,
+    host: req.get("host") ?? null,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    hasError: Boolean(oauthError),
+    hasCode: Boolean(code),
+    hasState: Boolean(state),
+    hasStoredState: Boolean(storedState),
+  });
+
+  if (oauthError) {
+    oauthDebugLog("callback_google_error", {
+      error: oauthError,
+      errorDescription: oauthErrorDescription ? oauthErrorDescription.slice(0, 200) : null,
+    });
+    return res.status(400).json({
+      error: "Google OAuth was not completed",
+      reason: oauthError,
+    });
+  }
+
   if (!state || !storedState || state !== storedState) {
+    oauthDebugLog("state_validation_failed", {
+      hasState: Boolean(state),
+      hasStoredState: Boolean(storedState),
+      stateMatches: Boolean(state && storedState && state === storedState),
+    });
     return res.status(400).json({ error: "Invalid OAuth state" });
   }
 
@@ -345,18 +527,61 @@ app.get("/api/auth/google/callback", async (req, res) => {
   res.clearCookie(STATE_COOKIE_NAME, baseCookieOptions);
 
   try {
-    const { tokens } = await oauthClient.getToken(code);
+    const tokens = await exchangeCodeForTokens({
+      code,
+      redirectUri: GOOGLE_REDIRECT_URI,
+    });
+
     if (!tokens?.id_token) {
+      oauthDebugLog("token_exchange_missing_id_token", {
+        hasAccessToken: Boolean(tokens?.access_token),
+        scope: tokens?.scope ?? null,
+      });
       return res.status(400).json({ error: "Missing id_token from Google" });
     }
 
     const googleUser = await verifyGoogleIdToken(tokens.id_token);
-    const user = await upsertGoogleUser(googleUser);
+    let enrichedGoogleUser = googleUser;
+    if (tokens?.access_token) {
+      try {
+        const profileFromUserInfo = await getGoogleProfile(tokens.access_token);
+        enrichedGoogleUser = {
+          googleSub: googleUser.googleSub ?? profileFromUserInfo.googleSub,
+          email: googleUser.email ?? profileFromUserInfo.email,
+          name: googleUser.name ?? profileFromUserInfo.name,
+          picture: googleUser.picture ?? profileFromUserInfo.picture,
+        };
+      } catch (profileErr) {
+        oauthDebugLog("google_profile_fetch_failed", {
+          ...getErrorSummary(profileErr),
+          responsePayload: sanitizeTokenPayload(profileErr?.responsePayload),
+        });
+      }
+    }
 
-    setSessionCookie(res, user.id);
-    return res.redirect(`${FRONTEND_URL}/dashboard`);
+    let user;
+    try {
+      user = await upsertGoogleUser(enrichedGoogleUser);
+      setSessionCookie(res, user.id);
+    } catch (sessionErr) {
+      oauthDebugLog("session_creation_failed", getErrorSummary(sessionErr));
+      throw sessionErr;
+    }
+
+    const frontendRedirectUrl = `${FRONTEND_URL}/dashboard`;
+    oauthDebugLog("callback_success", {
+      frontendRedirectUrl,
+      hasUserId: Boolean(user?.id),
+    });
+    return res.redirect(frontendRedirectUrl);
   } catch (err) {
-    console.error("OAuth callback failed", err?.message ?? "unknown error");
+    const errorSummary = getErrorSummary(err);
+    oauthDebugLog("callback_failed", {
+      ...errorSummary,
+      tokenRequest: err?.tokenRequestMeta ?? null,
+      tokenResponsePayload: sanitizeTokenPayload(err?.responsePayload ?? null),
+    });
+    console.error("OAuth callback failed", errorSummary);
     return res.status(500).json({ error: "Google OAuth failed" });
   }
 });
@@ -368,6 +593,16 @@ app.get("/api/auth/config", (req, res) => {
     oauthConfigured,
     devFallbackEnabled,
     hasFrontendUrl: Boolean(FRONTEND_URL),
+  });
+});
+
+app.get("/api/debug/oauth", (req, res) => {
+  return res.json({
+    oauthConfigured,
+    hasClientId: Boolean(GOOGLE_CLIENT_ID),
+    hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
+    redirectUri: GOOGLE_REDIRECT_URI ?? null,
+    frontendUrl: FRONTEND_URL ?? null,
   });
 });
 
