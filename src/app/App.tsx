@@ -21,9 +21,10 @@ export default function App() {
             <Route path="/signup" element={<LoginPage />} />
           </Route>
 
+          <Route path="/" element={<Navigate to="/login" replace />} />
+
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/schools" element={<SchoolMatchPage />} />
@@ -33,7 +34,7 @@ export default function App() {
             </Route>
           </Route>
 
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
