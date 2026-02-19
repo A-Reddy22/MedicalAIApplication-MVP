@@ -317,15 +317,6 @@ function getOAuthConfigurationIssue(req) {
     };
   }
 
-  if (mixedOauthEnvSources) {
-    return {
-      status: 500,
-      error:
-        "Google OAuth configuration is split across multiple env files. Keep GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in one env file.",
-      reason: "oauth_env_source_conflict",
-    };
-  }
-
   if (!GOOGLE_REDIRECT_URI) {
     return {
       status: 500,
@@ -357,6 +348,19 @@ function getOAuthConfigurationIssue(req) {
   }
 
   return null;
+}
+
+function getOAuthStartUrl() {
+  if (!GOOGLE_REDIRECT_URI) return null;
+  try {
+    const callbackUrl = new URL(GOOGLE_REDIRECT_URI);
+    callbackUrl.pathname = "/api/auth/google/start";
+    callbackUrl.search = "";
+    callbackUrl.hash = "";
+    return callbackUrl.toString();
+  } catch {
+    return null;
+  }
 }
 
 async function exchangeCodeForTokens({ code, redirectUri }) {
@@ -781,10 +785,19 @@ app.get("/api/auth/google/callback", async (req, res) => {
 
 app.get("/api/auth/config", (req, res) => {
   const configIssue = getOAuthConfigurationIssue(req);
+  const oauthStartUrl = getOAuthStartUrl();
   return res.json({
     oauthConfigured,
     devFallbackEnabled: DEV_AUTH_ENABLED,
     hasFrontendUrl: Boolean(FRONTEND_URL),
+    oauthStartUrl,
+    oauthWarning: mixedOauthEnvSources
+      ? {
+          reason: "oauth_env_source_conflict",
+          message:
+            "OAuth vars are loaded from multiple env files. This is allowed but can be confusing; keep GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in one env file.",
+        }
+      : null,
     oauthIssue: configIssue
       ? {
           reason: configIssue.reason,
@@ -800,6 +813,7 @@ app.get("/api/debug/oauth", (req, res) => {
     hasClientId: Boolean(GOOGLE_CLIENT_ID),
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,
+    oauthStartUrl: getOAuthStartUrl(),
     frontendUrl: FRONTEND_URL ?? null,
     debugOauth: DEBUG_OAUTH,
     mixedOauthEnvSources,

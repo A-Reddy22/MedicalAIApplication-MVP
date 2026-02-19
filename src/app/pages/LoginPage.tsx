@@ -10,11 +10,10 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const { user, loading, refresh } = useAuth();
   const [devName, setDevName] = useState("Dev User");
+  const [googleStartUrl, setGoogleStartUrl] = useState(() => apiUrl("/api/auth/google/start"));
   const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
   const [devAuthEnabled, setDevAuthEnabled] = useState(false);
   const [oauthIssueMessage, setOauthIssueMessage] = useState<string | null>(null);
-
-  const googleStartUrl = useMemo(() => apiUrl("/api/auth/google/start"), []);
   const authError = searchParams.get("authError");
 
   const authErrorMessage = useMemo(() => {
@@ -45,16 +44,27 @@ export default function LoginPage() {
           setOauthConfigured(false);
           setDevAuthEnabled(import.meta.env.DEV);
           setOauthIssueMessage(null);
+          setGoogleStartUrl(apiUrl("/api/auth/google/start"));
           return;
         }
         const data = await response.json();
         setOauthConfigured(Boolean(data.oauthConfigured));
         setDevAuthEnabled(Boolean(data.devFallbackEnabled));
-        setOauthIssueMessage(data?.oauthIssue?.message ? String(data.oauthIssue.message) : null);
+        const configuredStartUrl =
+          typeof data?.oauthStartUrl === "string" && data.oauthStartUrl.length
+            ? data.oauthStartUrl
+            : apiUrl("/api/auth/google/start");
+        setGoogleStartUrl(configuredStartUrl);
+
+        const issueParts = [];
+        if (data?.oauthIssue?.message) issueParts.push(String(data.oauthIssue.message));
+        if (data?.oauthWarning?.message) issueParts.push(String(data.oauthWarning.message));
+        setOauthIssueMessage(issueParts.length ? issueParts.join(" ") : null);
       } catch {
         setOauthConfigured(false);
         setDevAuthEnabled(import.meta.env.DEV);
         setOauthIssueMessage(null);
+        setGoogleStartUrl(apiUrl("/api/auth/google/start"));
       }
     };
 
