@@ -265,6 +265,16 @@ function getErrorSummary(err) {
   };
 }
 
+function toReasonSlug(value) {
+  if (!value || typeof value !== "string") return "";
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
 function shouldRedirectOAuthFailure(req) {
   const formatHint = req.query?.format?.toString().toLowerCase();
   if (formatHint === "json") return false;
@@ -428,11 +438,19 @@ async function exchangeCodeForTokens({ code, redirectUri }) {
 }
 
 async function getGoogleProfile(accessToken) {
-  const response = await fetch(GOOGLE_USERINFO_ENDPOINT, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch (networkErr) {
+    const error = new Error("Google profile fetch request failed");
+    error.name = "GoogleProfileFetchError";
+    error.code = networkErr?.code ?? null;
+    throw error;
+  }
 
   const responseText = await response.text();
   const parsedResponse = parseJsonSafe(responseText);
@@ -792,11 +810,26 @@ app.get("/api/auth/google/callback", async (req, res) => {
 
     let user;
     try {
-      user = await upsertGoogleUser(enrichedGoogleUser);
-      setSessionCookie(res, user.id);
-    } catch (sessionErr) {
-      oauthDebugLog("session_creation_failed", getErrorSummary(sessionErr));
-      throw sessionErr;
+      try {
+        user = await upsertGoogleUser(enrichedGoogleUser);
+      } catch (upsertErr) {
+        const wrappedUpsertError = new Error("Failed to upsert OAuth user");
+        wrappedUpsertError.name = "OAuthUserUpsertError";
+        wrappedUpsertError.code = upsertErr?.code ?? null;
+        throw wrappedUpsertError;
+      }
+
+      try {
+        setSessionCookie(res, user.id);
+      } catch (cookieErr) {
+        const wrappedSessionError = new Error("Failed to set OAuth session cookie");
+        wrappedSessionError.name = "OAuthSessionCookieError";
+        wrappedSessionError.code = cookieErr?.code ?? null;
+        throw wrappedSessionError;
+      }
+    } catch (sessionOrUserErr) {
+      oauthDebugLog("session_creation_failed", getErrorSummary(sessionOrUserErr));
+      throw sessionOrUserErr;
     }
 
     const frontendRedirectUrl = buildFrontendAppRedirect("/dashboard");
@@ -814,8 +847,12 @@ app.get("/api/auth/google/callback", async (req, res) => {
       GoogleIdTokenVerificationError: "id_token_verification_failed",
       GoogleProfileFetchError: "profile_fetch_failed",
       JsonWebTokenError: "session_sign_failed",
+      OAuthUserUpsertError: "user_upsert_failed",
+      OAuthSessionCookieError: "session_cookie_failed",
     };
-    const reason = reasonMap[errorSummary.name] || "callback_failed";
+    const fallbackReasonSlug = toReasonSlug(errorSummary.name);
+    const fallbackReason = fallbackReasonSlug ? `callback_failed_${fallbackReasonSlug}` : "callback_failed";
+    const reason = reasonMap[errorSummary.name] || fallbackReason;
     oauthDebugLog("callback_failed", {
       ...errorSummary,
       tokenRequest: err?.tokenRequestMeta ?? null,

@@ -51,6 +51,9 @@ export default function LoginPage() {
     if (authError === "oauth_not_configured") {
       return "Google OAuth is not configured on the backend. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.";
     }
+    if (authError.startsWith("callback_failed_")) {
+      return `Google login failed during callback (${authError.replace("callback_failed_", "")}). Check backend OAuth diagnostics and DEBUG_OAUTH logs.`;
+    }
     return `Google login failed (${authError}). Retry once, then check backend OAuth diagnostics.`;
   }, [authError]);
 
