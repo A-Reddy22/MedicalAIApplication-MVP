@@ -68,9 +68,39 @@ app.set("trust proxy", 1);
 app.use(cookieParser());
 app.use(express.json());
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
+function buildAllowedOrigins(frontendUrl) {
+  const origins = new Set();
+  if (!frontendUrl) return origins;
+
+  const normalized = frontendUrl.toString().trim().replace(/\/$/, "");
+  if (!normalized) return origins;
+
+  try {
+    const parsed = new URL(normalized);
+    origins.add(parsed.origin);
+
+    // Allow localhost <-> 127.0.0.1 equivalents during local development.
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      const alt = new URL(parsed.toString());
+      alt.hostname = parsed.hostname === "localhost" ? "127.0.0.1" : "localhost";
+      origins.add(alt.origin);
+    }
+  } catch {
+    origins.add(normalized);
+  }
+
+  return origins;
+}
+
+const allowedOrigins = buildAllowedOrigins(FRONTEND_URL);
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
@@ -157,6 +187,9 @@ const STATE_COOKIE_NAME = "medadmit_oauth_state";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const isProd = process.env.NODE_ENV === "production";
 const oauthConfigured = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
+const DEV_AUTH_ENABLED =
+  !isProd &&
+  (process.env.DEV_AUTH === "true" || (process.env.DEV_AUTH !== "false" && !oauthConfigured));
 const oauthClient = oauthConfigured ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI) : null;
 const missingOauthVars = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"].filter(
   (name) => !process.env[name]
@@ -417,6 +450,8 @@ if (!SESSION_JWT_SECRET) {
 console.log("dotenv loaded files=", loadedEnvFiles.length ? loadedEnvFiles.join(", ") : "none");
 console.log("oauthConfigured=", oauthConfigured);
 console.log("debugOauth=", DEBUG_OAUTH);
+console.log("devAuthEnabled=", DEV_AUTH_ENABLED);
+console.log("allowedOrigins=", [...allowedOrigins].join(", "));
 console.log("oauthEnvSources=", oauthEnvKeySources);
 if (mixedOauthEnvSources) {
   console.warn(
@@ -745,12 +780,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
 });
 
 app.get("/api/auth/config", (req, res) => {
-  const devFallbackEnabled =
-    (process.env.DEV_AUTH === "true" || process.env.NODE_ENV === "development") && !oauthConfigured;
   const configIssue = getOAuthConfigurationIssue(req);
   return res.json({
     oauthConfigured,
-    devFallbackEnabled,
+    devFallbackEnabled: DEV_AUTH_ENABLED,
     hasFrontendUrl: Boolean(FRONTEND_URL),
     oauthIssue: configIssue
       ? {
@@ -818,9 +851,7 @@ app.post("/api/auth/logout", (req, res) => {
 });
 
 app.post("/api/auth/dev-login", async (req, res) => {
-  const devFallbackEnabled =
-    (process.env.DEV_AUTH === "true" || process.env.NODE_ENV === "development") && !oauthConfigured;
-  if (!devFallbackEnabled) {
+  if (!DEV_AUTH_ENABLED) {
     return res.status(404).json({ error: "Not found" });
   }
 

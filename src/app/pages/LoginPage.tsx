@@ -122,7 +122,7 @@ export default function LoginPage() {
       {devAuthEnabled ? (
         <div className="border-t border-gray-200 pt-4 space-y-3">
           <p className="text-xs text-gray-500">
-            Google OAuth is not configured. Use dev mode only for local testing.
+            Dev auth mode is enabled. Use this only for local testing.
           </p>
           <Input
             value={devName}
