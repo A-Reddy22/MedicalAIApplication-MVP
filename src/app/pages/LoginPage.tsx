@@ -21,6 +21,9 @@ export default function LoginPage() {
     if (authError.startsWith("token_exchange_failed")) {
       return "Google login failed while exchanging the authorization code. Check GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI for an exact match.";
     }
+    if (authError === "token_exchange_network_failed") {
+      return "Google login failed while contacting the token endpoint. Verify backend internet access and retry.";
+    }
     if (authError === "invalid_state") {
       return "Your login session expired or state validation failed. Please try signing in again.";
     }
@@ -33,7 +36,22 @@ export default function LoginPage() {
     if (authError === "missing_id_token") {
       return "Google callback did not return an ID token. Verify requested scopes include openid, email, and profile.";
     }
-    return "Google login failed. Retry once, then check backend OAuth diagnostics.";
+    if (authError === "id_token_verification_failed") {
+      return "Google ID token validation failed. Retry once, then check backend OAuth diagnostics.";
+    }
+    if (authError === "profile_fetch_failed") {
+      return "Google profile lookup failed after token exchange. Check backend OAuth diagnostics and retry.";
+    }
+    if (authError === "missing_identity" || authError === "missing_google_subject") {
+      return "Google callback succeeded but did not return a usable identity. Verify scopes and OAuth app configuration.";
+    }
+    if (authError === "redirect_origin_mismatch") {
+      return "Backend redirect URI origin does not match the running backend origin. Align GOOGLE_REDIRECT_URI exactly.";
+    }
+    if (authError === "oauth_not_configured") {
+      return "Google OAuth is not configured on the backend. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.";
+    }
+    return `Google login failed (${authError}). Retry once, then check backend OAuth diagnostics.`;
   }, [authError]);
 
   useEffect(() => {
