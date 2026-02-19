@@ -308,20 +308,6 @@ function respondOAuthFailure(req, res, { status = 500, error = "Google OAuth fai
   return res.status(status).json(payload);
 }
 
-function areEquivalentLocalOrigins(configuredOrigin, expectedOrigin) {
-  if (configuredOrigin === expectedOrigin) return true;
-
-  try {
-    const configured = new URL(configuredOrigin);
-    const expected = new URL(expectedOrigin);
-    const localhostHosts = new Set(["localhost", "127.0.0.1"]);
-    const bothLocalhostLike = localhostHosts.has(configured.hostname) && localhostHosts.has(expected.hostname);
-    return bothLocalhostLike && configured.protocol === expected.protocol && configured.port === expected.port;
-  } catch {
-    return false;
-  }
-}
-
 function getOAuthConfigurationIssue(req) {
   if (!oauthConfigured || !oauthClient) {
     return {
@@ -355,7 +341,7 @@ function getOAuthConfigurationIssue(req) {
     const expectedOrigin = reqHost ? `${reqProtocol}://${reqHost}` : configured.origin;
 
     // This mismatch is a high-signal source of invalid_grant at token exchange.
-    if (!areEquivalentLocalOrigins(configured.origin, expectedOrigin)) {
+    if (configured.origin !== expectedOrigin) {
       return {
         status: 500,
         error: `GOOGLE_REDIRECT_URI origin (${configured.origin}) does not match current backend origin (${expectedOrigin}).`,
