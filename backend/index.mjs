@@ -279,9 +279,50 @@ function shouldRedirectOAuthFailure(req) {
   return true;
 }
 
-function buildFrontendLoginRedirect(reason) {
+const LOCAL_LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function getHostnameFromHostHeader(hostHeader) {
+  if (!hostHeader) return null;
+  const value = hostHeader.toString().trim();
+  if (!value) return null;
+
+  if (value.startsWith("[")) {
+    const closingBracket = value.indexOf("]");
+    if (closingBracket > 1) {
+      return value.slice(1, closingBracket).toLowerCase();
+    }
+    return null;
+  }
+
+  const colonMatches = value.match(/:/g)?.length ?? 0;
+  if (colonMatches > 1) {
+    return value.toLowerCase();
+  }
+
+  const colonIndex = value.indexOf(":");
+  if (colonIndex === -1) {
+    return value.toLowerCase();
+  }
+
+  return value.slice(0, colonIndex).toLowerCase();
+}
+
+function alignFrontendLoopbackAlias(target, req) {
+  const frontendHost = target?.hostname?.toLowerCase();
+  const requestHost = getHostnameFromHostHeader(req?.get("host"));
+  if (!frontendHost || !requestHost) return;
+
+  const bothLoopback = LOCAL_LOOPBACK_HOSTS.has(frontendHost) && LOCAL_LOOPBACK_HOSTS.has(requestHost);
+  if (!bothLoopback || frontendHost === requestHost) return;
+
+  // Keep localhost/127.0.0.1 aliases aligned so session cookies remain usable after OAuth redirects.
+  target.hostname = requestHost;
+}
+
+function buildFrontendLoginRedirect(req, reason) {
   try {
     const target = new URL("/login", FRONTEND_URL);
+    alignFrontendLoopbackAlias(target, req);
     if (reason) {
       target.searchParams.set("authError", reason);
     }
@@ -292,9 +333,11 @@ function buildFrontendLoginRedirect(reason) {
   }
 }
 
-function buildFrontendAppRedirect(pathname = "/dashboard") {
+function buildFrontendAppRedirect(req, pathname = "/dashboard") {
   try {
-    return new URL(pathname, FRONTEND_URL).toString();
+    const target = new URL(pathname, FRONTEND_URL);
+    alignFrontendLoopbackAlias(target, req);
+    return target.toString();
   } catch {
     return `${FRONTEND_URL}${pathname}`;
   }
@@ -302,7 +345,7 @@ function buildFrontendAppRedirect(pathname = "/dashboard") {
 
 function respondOAuthFailure(req, res, { status = 500, error = "Google OAuth failed", reason = "oauth_failed" } = {}) {
   if (shouldRedirectOAuthFailure(req)) {
-    const location = buildFrontendLoginRedirect(reason);
+    const location = buildFrontendLoginRedirect(req, reason);
     oauthDebugLog("callback_frontend_redirect_on_error", {
       status,
       reason,
@@ -799,7 +842,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
       throw sessionErr;
     }
 
-    const frontendRedirectUrl = buildFrontendAppRedirect("/dashboard");
+    const frontendRedirectUrl = buildFrontendAppRedirect(req, "/dashboard");
     oauthDebugLog("callback_success", {
       frontendRedirectUrl,
       hasUserId: Boolean(user?.id),
