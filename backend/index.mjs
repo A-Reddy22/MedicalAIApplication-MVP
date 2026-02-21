@@ -221,6 +221,7 @@ const oauthEnvKeySources = {
 const oauthSourceSet = new Set(Object.values(oauthEnvKeySources));
 const mixedOauthEnvSources = oauthSourceSet.size > 1;
 let lastOAuthCallbackFailure = null;
+const OAUTH_CALLBACK_HANDLER_VERSION = "2026-02-21-r3";
 
 function oauthDebugLog(event, details = {}) {
   if (!DEBUG_OAUTH) return;
@@ -1037,6 +1038,7 @@ app.get("/api/auth/config", (req, res) => {
 app.get("/api/auth/diagnostics", (req, res) => {
   return res.json({
     oauthConfigured,
+    oauthCallbackHandlerVersion: OAUTH_CALLBACK_HANDLER_VERSION,
     hasClientId: Boolean(GOOGLE_CLIENT_ID),
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,
@@ -1058,6 +1060,7 @@ app.get("/api/auth/diagnostics", (req, res) => {
 app.get("/api/debug/oauth", (req, res) => {
   return res.json({
     oauthConfigured,
+    oauthCallbackHandlerVersion: OAUTH_CALLBACK_HANDLER_VERSION,
     hasClientId: Boolean(GOOGLE_CLIENT_ID),
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,

@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
   const [devAuthEnabled, setDevAuthEnabled] = useState(false);
   const [oauthIssueMessage, setOauthIssueMessage] = useState<string | null>(null);
+  const [callbackFailureDetail, setCallbackFailureDetail] = useState<string | null>(null);
   const authError = searchParams.get("authError");
 
   const authErrorMessage = useMemo(() => {
@@ -53,6 +54,9 @@ export default function LoginPage() {
     }
     if (authError === "oauth_not_configured") {
       return "Google OAuth is not configured on the backend. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.";
+    }
+    if (authError === "callback_failed") {
+      return "Google login failed inside the backend callback. This usually means the API server is running an older callback handler or hit an internal error. Open /api/auth/diagnostics and check lastOAuthCallbackFailure.";
     }
     if (authError.startsWith("callback_failed_")) {
       return `Google login failed inside backend callback (${authError}). Open /api/auth/diagnostics to view lastOAuthCallbackFailure and fix the reported internal error.`;
@@ -96,12 +100,54 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
+    const shouldLoadDiagnostics =
+      authError === "callback_failed" || (typeof authError === "string" && authError.startsWith("callback_failed_"));
+
+    if (!shouldLoadDiagnostics) {
+      setCallbackFailureDetail(null);
+      return;
+    }
+
+    let active = true;
+    const loadDiagnostics = async () => {
+      try {
+        const response = await fetch(apiUrl("/api/auth/diagnostics"), { credentials: "include" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!active) return;
+
+        const failure = data?.lastOAuthCallbackFailure;
+        const failureReason = typeof failure?.reason === "string" ? failure.reason : null;
+        const failureMessage = typeof failure?.summary?.message === "string" ? failure.summary.message : null;
+        const handlerVersion = typeof data?.oauthCallbackHandlerVersion === "string" ? data.oauthCallbackHandlerVersion : null;
+        const pieces = [];
+        if (handlerVersion) pieces.push(`handler=${handlerVersion}`);
+        if (failureReason) pieces.push(`reason=${failureReason}`);
+        if (failureMessage) pieces.push(`message=${failureMessage}`);
+        setCallbackFailureDetail(pieces.length ? pieces.join(" | ") : null);
+      } catch {
+        if (!active) return;
+        setCallbackFailureDetail(null);
+      }
+    };
+
+    loadDiagnostics();
+    return () => {
+      active = false;
+    };
+  }, [authError]);
+
+  useEffect(() => {
     if (!loading && user) {
       navigate("/dashboard", { replace: true });
     }
   }, [loading, user, navigate]);
 
   const handleGoogleLogin = () => {
+    if (oauthIssueMessage) {
+      alert("Google login is currently blocked by backend OAuth configuration. Fix the warning shown on this page, then retry.");
+      return;
+    }
     window.location.href = googleStartUrl;
   };
 
@@ -134,12 +180,18 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <Button className="w-full" onClick={handleGoogleLogin}>
+      <Button className="w-full" onClick={handleGoogleLogin} disabled={!oauthConfigured || Boolean(oauthIssueMessage)}>
         Continue with Google
       </Button>
 
       {authErrorMessage ? (
         <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md p-3">{authErrorMessage}</p>
+      ) : null}
+
+      {callbackFailureDetail ? (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+          OAuth diagnostics: {callbackFailureDetail}
+        </p>
       ) : null}
 
       {oauthConfigured === false ? (
