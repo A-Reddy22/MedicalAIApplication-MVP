@@ -165,11 +165,25 @@ const schema = z.object({
 const adapter = new JSONFile(new URL("./db.json", import.meta.url));
 const defaultData = { profiles: [], users: [] };
 const db = new Low(adapter, defaultData);
-await db.read();
-// ensure data is initialized
-db.data ||= defaultData;
-db.data.users ||= [];
-db.data.profiles ||= [];
+
+function ensureDbCollections() {
+  if (!db.data || typeof db.data !== "object" || Array.isArray(db.data)) {
+    db.data = { profiles: [], users: [] };
+  }
+  if (!Array.isArray(db.data.users)) {
+    db.data.users = [];
+  }
+  if (!Array.isArray(db.data.profiles)) {
+    db.data.profiles = [];
+  }
+}
+
+async function refreshDb() {
+  await db.read();
+  ensureDbCollections();
+}
+
+await refreshDb();
 
 const DEFAULT_MATCH_LIMIT = 30;
 
@@ -206,6 +220,7 @@ const oauthEnvKeySources = {
 };
 const oauthSourceSet = new Set(Object.values(oauthEnvKeySources));
 const mixedOauthEnvSources = oauthSourceSet.size > 1;
+let lastOAuthCallbackFailure = null;
 
 function oauthDebugLog(event, details = {}) {
   if (!DEBUG_OAUTH) return;
@@ -592,12 +607,63 @@ async function verifyGoogleIdToken(idToken) {
   }
 }
 
-function signSession(userId) {
-  return jwt.sign({ sub: userId }, SESSION_JWT_SECRET, { expiresIn: "7d" });
+function toNullableString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
 }
 
-function setSessionCookie(res, userId) {
-  const token = signSession(userId);
+function normalizeSessionUser(input = {}) {
+  const id = toNullableString(input.id ?? input.sub);
+  if (!id) return null;
+  return {
+    id,
+    email: toNullableString(input.email),
+    name: toNullableString(input.name),
+    pictureUrl: toNullableString(input.pictureUrl ?? input.picture),
+    authProvider: toNullableString(input.authProvider),
+  };
+}
+
+function toSessionUserFromUserRecord(user) {
+  return normalizeSessionUser({
+    id: user?.id,
+    email: user?.email,
+    name: user?.name,
+    pictureUrl: user?.pictureUrl,
+    authProvider: user?.authProvider,
+  });
+}
+
+function toSessionUserFromGoogleIdentity(googleUser) {
+  return normalizeSessionUser({
+    id: `google_${googleUser.googleSub}`,
+    email: googleUser.email,
+    name: googleUser.name,
+    pictureUrl: googleUser.picture,
+    authProvider: "google",
+  });
+}
+
+function signSession(sessionUser) {
+  const normalizedSessionUser = normalizeSessionUser(sessionUser);
+  if (!normalizedSessionUser) {
+    throw new Error("Cannot sign session without a user id");
+  }
+
+  const payload = {
+    sub: normalizedSessionUser.id,
+    email: normalizedSessionUser.email,
+    name: normalizedSessionUser.name,
+    pictureUrl: normalizedSessionUser.pictureUrl,
+    authProvider: normalizedSessionUser.authProvider,
+  };
+
+  return jwt.sign(payload, SESSION_JWT_SECRET, { expiresIn: "7d" });
+}
+
+function setSessionCookie(res, sessionUser) {
+  const token = signSession(sessionUser);
   res.cookie(SESSION_COOKIE_NAME, token, {
     ...baseCookieOptions,
     maxAge: SESSION_TTL_MS,
@@ -612,19 +678,63 @@ function getSessionPayload(req) {
   const token = req.cookies?.[SESSION_COOKIE_NAME];
   if (!token) return null;
   try {
-    return jwt.verify(token, SESSION_JWT_SECRET);
-  } catch (err) {
+    const payload = jwt.verify(token, SESSION_JWT_SECRET);
+    if (!payload || typeof payload !== "object") return null;
+    return payload;
+  } catch {
     return null;
   }
 }
 
+function hasSessionIdentity(sessionUser) {
+  if (!sessionUser) return false;
+  return Boolean(
+    sessionUser.authProvider === "google" ||
+      sessionUser.authProvider === "dev" ||
+      sessionUser.email ||
+      sessionUser.name
+  );
+}
+
+function getSessionFallbackUser(sessionPayload) {
+  const sessionUser = normalizeSessionUser({
+    id: sessionPayload?.sub,
+    email: sessionPayload?.email,
+    name: sessionPayload?.name,
+    pictureUrl: sessionPayload?.pictureUrl,
+    authProvider: sessionPayload?.authProvider,
+  });
+  if (!hasSessionIdentity(sessionUser)) return null;
+
+  return {
+    id: sessionUser.id,
+    googleSub: null,
+    email: sessionUser.email,
+    name: sessionUser.name,
+    pictureUrl: sessionUser.pictureUrl,
+    authProvider: sessionUser.authProvider ?? "session",
+    createdAt: null,
+    lastLoginAt: null,
+  };
+}
+
 async function findUserById(userId) {
-  await db.read();
+  await refreshDb();
   return db.data.users.find((user) => user.id === userId);
 }
 
+async function resolveAuthenticatedUser(req) {
+  const session = getSessionPayload(req);
+  if (!session?.sub) return null;
+
+  const storedUser = await findUserById(session.sub);
+  if (storedUser) return storedUser;
+
+  return getSessionFallbackUser(session);
+}
+
 async function upsertGoogleUser({ googleSub, email, name, picture }) {
-  await db.read();
+  await refreshDb();
   const now = new Date().toISOString();
   let user = db.data.users.find((entry) => entry.googleSub === googleSub);
   if (user) {
@@ -650,7 +760,7 @@ async function upsertGoogleUser({ googleSub, email, name, picture }) {
 }
 
 async function createDevUser({ name, email }) {
-  await db.read();
+  await refreshDb();
   const now = new Date().toISOString();
   const user = {
     id: nanoid(),
@@ -668,13 +778,9 @@ async function createDevUser({ name, email }) {
 }
 
 async function requireAuth(req, res, next) {
-  const session = getSessionPayload(req);
-  if (!session?.sub) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-  const user = await findUserById(session.sub);
+  const user = await resolveAuthenticatedUser(req);
   if (!user) {
-    return res.status(401).json({ error: "Invalid session" });
+    return res.status(401).json({ error: "Authentication required" });
   }
   req.authUser = user;
   req.userId = user.id;
@@ -833,20 +939,38 @@ app.get("/api/auth/google/callback", async (req, res) => {
       });
     }
 
-    let user;
+    let sessionUser = toSessionUserFromGoogleIdentity(enrichedGoogleUser);
+    if (!sessionUser) {
+      return respondOAuthFailure(req, res, {
+        status: 400,
+        error: "Google callback did not include enough identity info for a session",
+        reason: "missing_identity",
+      });
+    }
+
     try {
-      user = await upsertGoogleUser(enrichedGoogleUser);
-      setSessionCookie(res, user.id);
+      const persistedUser = await upsertGoogleUser(enrichedGoogleUser);
+      sessionUser = toSessionUserFromUserRecord(persistedUser) ?? sessionUser;
+    } catch (persistErr) {
+      oauthDebugLog("session_persist_failed", getErrorSummary(persistErr));
+      console.error("OAuth user persistence failed; continuing with session fallback", getErrorSummary(persistErr));
+    }
+
+    try {
+      setSessionCookie(res, sessionUser);
     } catch (sessionErr) {
-      oauthDebugLog("session_creation_failed", getErrorSummary(sessionErr));
-      throw sessionErr;
+      const wrapped = new Error("Session cookie signing failed");
+      wrapped.name = "SessionCookieError";
+      wrapped.cause = sessionErr;
+      throw wrapped;
     }
 
     const frontendRedirectUrl = buildFrontendAppRedirect(req, "/dashboard");
     oauthDebugLog("callback_success", {
       frontendRedirectUrl,
-      hasUserId: Boolean(user?.id),
+      hasUserId: Boolean(sessionUser?.id),
     });
+    lastOAuthCallbackFailure = null;
     return res.redirect(frontendRedirectUrl);
   } catch (err) {
     const errorSummary = getErrorSummary(err);
@@ -857,8 +981,20 @@ app.get("/api/auth/google/callback", async (req, res) => {
       GoogleIdTokenVerificationError: "id_token_verification_failed",
       GoogleProfileFetchError: "profile_fetch_failed",
       JsonWebTokenError: "session_sign_failed",
+      SessionCookieError: "session_sign_failed",
     };
-    const reason = reasonMap[errorSummary.name] || "callback_failed";
+    const normalizedErrorName =
+      String(errorSummary.name || "error")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "error";
+    const reason = reasonMap[errorSummary.name] || `callback_failed_${normalizedErrorName}`;
+    lastOAuthCallbackFailure = {
+      at: new Date().toISOString(),
+      reason,
+      summary: errorSummary,
+      upstreamErrorCode: toNullableString(upstreamErrorCode),
+    };
     oauthDebugLog("callback_failed", {
       ...errorSummary,
       tokenRequest: err?.tokenRequestMeta ?? null,
@@ -915,6 +1051,7 @@ app.get("/api/auth/diagnostics", (req, res) => {
       sessionTtlMs: SESSION_TTL_MS,
       oauthStateTtlMs: OAUTH_STATE_TTL_MS,
     },
+    lastOAuthCallbackFailure,
   });
 });
 
@@ -939,45 +1076,33 @@ app.get("/api/debug/oauth", (req, res) => {
       sessionTtlMs: SESSION_TTL_MS,
       oauthStateTtlMs: OAUTH_STATE_TTL_MS,
     },
+    lastOAuthCallbackFailure,
   });
 });
 
+function serializeAuthUser(user) {
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    name: user.name ?? null,
+    pictureUrl: user.pictureUrl ?? null,
+  };
+}
+
 app.get("/api/auth/me", async (req, res) => {
-  const session = getSessionPayload(req);
-  if (!session?.sub) {
+  const user = await resolveAuthenticatedUser(req);
+  if (!user) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  const user = await findUserById(session.sub);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid session" });
-  }
-  return res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      pictureUrl: user.pictureUrl,
-    },
-  });
+  return res.json({ user: serializeAuthUser(user) });
 });
 
 app.get("/api/me", async (req, res) => {
-  const session = getSessionPayload(req);
-  if (!session?.sub) {
+  const user = await resolveAuthenticatedUser(req);
+  if (!user) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  const user = await findUserById(session.sub);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid session" });
-  }
-  return res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      pictureUrl: user.pictureUrl,
-    },
-  });
+  return res.json({ user: serializeAuthUser(user) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -993,7 +1118,7 @@ app.post("/api/auth/dev-login", async (req, res) => {
   const name = req.body?.name?.toString().trim() || "Dev User";
   const email = req.body?.email?.toString().trim() || `dev-${nanoid(6)}@example.local`;
   const user = await createDevUser({ name, email });
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, toSessionUserFromUserRecord(user));
   return res.json({
     user: {
       id: user.id,
@@ -1010,7 +1135,7 @@ function coerceLimit(rawLimit, fallback = DEFAULT_MATCH_LIMIT) {
 }
 
 async function findStoredProfile(profileId) {
-  await db.read();
+  await refreshDb();
   return db.data.profiles.find((p) => p.id === profileId);
 }
 
@@ -1021,6 +1146,7 @@ function ensureHasNumericScores(profile) {
 app.post("/api/profile", requireAuth, async (req, res) => {
   const parse = schema.safeParse(req.body);
   if (!parse.success) return res.status(400).json({ error: parse.error.errors });
+  await refreshDb();
 
   // Store the applicant profile as a single document to keep academic + demographics in sync.
   const profile = {
@@ -1041,7 +1167,7 @@ app.post("/api/profile", requireAuth, async (req, res) => {
 
 app.get("/api/profile/:id", requireAuth, async (req, res) => {
   const id = req.params.id;
-  await db.read();
+  await refreshDb();
   const p = db.data.profiles.find((x) => x.id === id);
   if (!p) return res.status(404).json({ error: "not found" });
   if (p.userId && p.userId !== req.userId) return res.status(403).json({ error: "forbidden" });
@@ -1051,7 +1177,7 @@ app.get("/api/profile/:id", requireAuth, async (req, res) => {
 app.get("/api/profile/user/:userId", requireAuth, async (req, res) => {
   const userId = req.params.userId;
   if (userId !== req.userId) return res.status(403).json({ error: "forbidden" });
-  await db.read();
+  await refreshDb();
   const userProfiles = db.data.profiles.filter((p) => p.userId === userId);
   if (!userProfiles.length) return res.status(404).json({ error: "not found" });
   const latestProfile = userProfiles[userProfiles.length - 1];

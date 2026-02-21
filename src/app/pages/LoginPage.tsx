@@ -42,6 +42,9 @@ export default function LoginPage() {
     if (authError === "profile_fetch_failed") {
       return "Google profile lookup failed after token exchange. Check backend OAuth diagnostics and retry.";
     }
+    if (authError === "session_sign_failed") {
+      return "Google login succeeded, but creating your server session cookie failed. Check SESSION_JWT_SECRET and backend cookie settings.";
+    }
     if (authError === "missing_identity" || authError === "missing_google_subject") {
       return "Google callback succeeded but did not return a usable identity. Verify scopes and OAuth app configuration.";
     }
@@ -50,6 +53,9 @@ export default function LoginPage() {
     }
     if (authError === "oauth_not_configured") {
       return "Google OAuth is not configured on the backend. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.";
+    }
+    if (authError.startsWith("callback_failed_")) {
+      return `Google login failed inside backend callback (${authError}). Open /api/auth/diagnostics to view lastOAuthCallbackFailure and fix the reported internal error.`;
     }
     return `Google login failed (${authError}). Retry once, then check backend OAuth diagnostics.`;
   }, [authError]);

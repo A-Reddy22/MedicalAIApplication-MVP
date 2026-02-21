@@ -70,6 +70,7 @@ VITE_API_PORT=4001 npm run dev
 Troubleshooting
 - If you see ECONNREFUSED from Vite proxy, ensure the backend is running and listening on the port Vite expects (VITE_API_PORT or 4000).
 - Keep loopback hostnames consistent during OAuth. If `GOOGLE_REDIRECT_URI` uses `127.0.0.1`, use `127.0.0.1` for your frontend URL too (and vice versa for `localhost`) to avoid session cookies being written to one host alias and read from another.
+- If Google redirects back with `authError=callback_failed_*`, open `GET /api/auth/diagnostics` and inspect `lastOAuthCallbackFailure` for the exact backend exception class/reason.
 - To force-stop a process using a port:
   ```
   lsof -ti:<port> | xargs -r kill
