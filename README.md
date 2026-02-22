@@ -104,3 +104,50 @@ Frontend (`.env` for Vite):
 - `VITE_API_BASE_URL` (e.g., `http://localhost:4000`)
 - `VITE_GOOGLE_CLIENT_ID` (optional, used only to toggle dev fallback UI)
 - `VITE_DEV_AUTH=true` (optional dev fallback UI in development)
+
+## Vercel deployment (works with this repo)
+
+This repo now supports serving the API on Vercel via `api/[...path].mjs` (Express app as a serverless function).
+
+### Option A: Single Vercel project (frontend + API on same domain) — recommended
+
+Vercel project settings:
+- Framework preset: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
+
+Environment variables (Vercel project):
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI=https://<your-domain>/api/auth/google/callback`
+- `FRONTEND_URL=https://<your-domain>`
+- `FRONTEND_URLS=https://<your-domain>,https://<your-vercel-project>.vercel.app` (optional but helpful)
+- `SESSION_JWT_SECRET=<long-random-secret>`
+- `SESSION_COOKIE_SAMESITE=lax`
+- `SESSION_COOKIE_SECURE=true`
+- `DEV_AUTH=false`
+- `DEBUG_OAUTH=false`
+- `DB_FILE_PATH=/tmp/medadmit-db.json` (ephemeral; for production use a real DB)
+- Leave `VITE_API_BASE_URL` empty/unset so frontend uses same-origin `/api/...`
+
+Google Cloud OAuth config must include:
+- Authorized redirect URI: `https://<your-domain>/api/auth/google/callback`
+- Authorized JavaScript origin: `https://<your-domain>`
+
+### Option B: Vercel frontend + external backend (Render/Railway/etc.)
+
+Frontend (Vercel env):
+- `VITE_API_BASE_URL=https://<your-backend-domain>`
+
+Backend env:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI=https://<your-backend-domain>/api/auth/google/callback`
+- `FRONTEND_URL=https://<your-frontend-domain>`
+- `FRONTEND_URLS=https://<your-frontend-domain>,https://<your-vercel-project>.vercel.app` (optional)
+- `SESSION_JWT_SECRET=<long-random-secret>`
+- `SESSION_COOKIE_SAMESITE=none` (required for cross-site cookie auth)
+- `SESSION_COOKIE_SECURE=true`
+- `DEV_AUTH=false`
+
+Important: if frontend and backend are on different top-level domains, `SameSite=Lax` cookies will not be sent on `fetch(..., { credentials: "include" })`; use `SESSION_COOKIE_SAMESITE=none` and `SESSION_COOKIE_SECURE=true`.

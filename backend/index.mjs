@@ -27,7 +27,11 @@ function loadBackendEnv() {
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REDIRECT_URI",
     "FRONTEND_URL",
+    "FRONTEND_URLS",
     "SESSION_JWT_SECRET",
+    "SESSION_COOKIE_SAMESITE",
+    "SESSION_COOKIE_SECURE",
+    "DB_FILE_PATH",
   ];
   const candidateEnvFiles = [
     path.join(repoRoot, ".env"),
@@ -67,33 +71,41 @@ app.use(helmet());
 app.set("trust proxy", 1);
 app.use(cookieParser());
 app.use(express.json());
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const isProd = process.env.NODE_ENV === "production";
+const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? "" : "http://localhost:5173");
+const EXTRA_FRONTEND_URLS = (process.env.FRONTEND_URLS || "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+const FRONTEND_URL_CANDIDATES = Array.from(new Set([FRONTEND_URL, ...EXTRA_FRONTEND_URLS].filter(Boolean)));
+const isServerlessRuntime = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
-function buildAllowedOrigins(frontendUrl) {
+function buildAllowedOrigins(frontendUrls) {
   const origins = new Set();
-  if (!frontendUrl) return origins;
+  for (const frontendUrl of frontendUrls) {
+    if (!frontendUrl) continue;
+    const normalized = frontendUrl.toString().trim().replace(/\/$/, "");
+    if (!normalized) continue;
 
-  const normalized = frontendUrl.toString().trim().replace(/\/$/, "");
-  if (!normalized) return origins;
+    try {
+      const parsed = new URL(normalized);
+      origins.add(parsed.origin);
 
-  try {
-    const parsed = new URL(normalized);
-    origins.add(parsed.origin);
-
-    // Allow localhost <-> 127.0.0.1 equivalents during local development.
-    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-      const alt = new URL(parsed.toString());
-      alt.hostname = parsed.hostname === "localhost" ? "127.0.0.1" : "localhost";
-      origins.add(alt.origin);
+      // Allow localhost <-> 127.0.0.1 equivalents during local development.
+      if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+        const alt = new URL(parsed.toString());
+        alt.hostname = parsed.hostname === "localhost" ? "127.0.0.1" : "localhost";
+        origins.add(alt.origin);
+      }
+    } catch {
+      origins.add(normalized);
     }
-  } catch {
-    origins.add(normalized);
   }
 
   return origins;
 }
 
-const allowedOrigins = buildAllowedOrigins(FRONTEND_URL);
+const allowedOrigins = buildAllowedOrigins(FRONTEND_URL_CANDIDATES);
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -162,7 +174,11 @@ const schema = z.object({
   essays: essaysSchema.optional(),
 });
 
-const adapter = new JSONFile(new URL("./db.json", import.meta.url));
+const defaultDbFilePath = fileURLToPath(new URL("./db.json", import.meta.url));
+const DB_FILE_PATH =
+  process.env.DB_FILE_PATH?.toString().trim() ||
+  (isServerlessRuntime ? "/tmp/medadmit-db.json" : defaultDbFilePath);
+const adapter = new JSONFile(DB_FILE_PATH);
 const defaultData = { profiles: [], users: [] };
 const db = new Low(adapter, defaultData);
 
@@ -198,7 +214,6 @@ const SESSION_COOKIE_NAME = "medadmit_session";
 const STATE_COOKIE_NAME = "medadmit_oauth_state";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const isProd = process.env.NODE_ENV === "production";
 const oauthConfigured = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
 const DEV_AUTH_ENABLED =
   !isProd &&
@@ -207,10 +222,23 @@ const oauthClient = oauthConfigured ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_
 const missingOauthVars = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"].filter(
   (name) => !process.env[name]
 );
+const allowedCookieSameSite = new Set(["strict", "lax", "none"]);
+const requestedCookieSameSite = (process.env.SESSION_COOKIE_SAMESITE || "lax").toString().trim().toLowerCase();
+const cookieSameSite = allowedCookieSameSite.has(requestedCookieSameSite) ? requestedCookieSameSite : "lax";
+const explicitCookieSecure = process.env.SESSION_COOKIE_SECURE?.toString().trim().toLowerCase();
+const computedCookieSecure =
+  explicitCookieSecure === "true"
+    ? true
+    : explicitCookieSecure === "false"
+      ? false
+      : cookieSameSite === "none"
+        ? true
+        : isProd;
+const cookieSecure = cookieSameSite === "none" ? true : computedCookieSecure;
 const baseCookieOptions = {
   httpOnly: true,
-  secure: isProd,
-  sameSite: "lax",
+  secure: cookieSecure,
+  sameSite: cookieSameSite,
   path: "/",
 };
 const oauthEnvKeySources = {
@@ -221,7 +249,7 @@ const oauthEnvKeySources = {
 const oauthSourceSet = new Set(Object.values(oauthEnvKeySources));
 const mixedOauthEnvSources = oauthSourceSet.size > 1;
 let lastOAuthCallbackFailure = null;
-const OAUTH_CALLBACK_HANDLER_VERSION = "2026-02-21-r3";
+const OAUTH_CALLBACK_HANDLER_VERSION = "2026-02-21-r4";
 
 function oauthDebugLog(event, details = {}) {
   if (!DEBUG_OAUTH) return;
@@ -323,9 +351,51 @@ function getHostnameFromHostHeader(hostHeader) {
   return value.slice(0, colonIndex).toLowerCase();
 }
 
+function getFirstHeaderValue(headerValue) {
+  if (!headerValue) return "";
+  return headerValue
+    .toString()
+    .split(",")[0]
+    .trim();
+}
+
+function getRequestHost(req) {
+  return getFirstHeaderValue(req?.get("x-forwarded-host")) || (req?.get("host") ?? "");
+}
+
+function getRequestProtocol(req) {
+  return getFirstHeaderValue(req?.get("x-forwarded-proto")) || req?.protocol || "http";
+}
+
+function getRequestOrigin(req, fallbackOrigin = "") {
+  const requestHost = getRequestHost(req);
+  const requestProtocol = getRequestProtocol(req);
+  if (requestHost) {
+    return `${requestProtocol}://${requestHost}`;
+  }
+  return fallbackOrigin;
+}
+
+function normalizeOrigin(originValue) {
+  try {
+    const parsed = new URL(originValue);
+    const port = parsed.port;
+    const protocol = parsed.protocol;
+    const omitPort = !port || (protocol === "https:" && port === "443") || (protocol === "http:" && port === "80");
+    return `${protocol}//${parsed.hostname}${omitPort ? "" : `:${port}`}`;
+  } catch {
+    return originValue;
+  }
+}
+
+function getFrontendBaseUrl(req) {
+  if (FRONTEND_URL) return FRONTEND_URL;
+  return getRequestOrigin(req, "http://localhost:5173");
+}
+
 function alignFrontendLoopbackAlias(target, req) {
   const frontendHost = target?.hostname?.toLowerCase();
-  const requestHost = getHostnameFromHostHeader(req?.get("host"));
+  const requestHost = getHostnameFromHostHeader(getRequestHost(req));
   if (!frontendHost || !requestHost) return;
 
   const bothLoopback = LOCAL_LOOPBACK_HOSTS.has(frontendHost) && LOCAL_LOOPBACK_HOSTS.has(requestHost);
@@ -337,7 +407,8 @@ function alignFrontendLoopbackAlias(target, req) {
 
 function buildFrontendLoginRedirect(req, reason) {
   try {
-    const target = new URL("/login", FRONTEND_URL);
+    const frontendBaseUrl = getFrontendBaseUrl(req);
+    const target = new URL("/login", frontendBaseUrl);
     alignFrontendLoopbackAlias(target, req);
     if (reason) {
       target.searchParams.set("authError", reason);
@@ -345,17 +416,18 @@ function buildFrontendLoginRedirect(req, reason) {
     return target.toString();
   } catch {
     const fallbackReason = reason ? `?authError=${encodeURIComponent(reason)}` : "";
-    return `${FRONTEND_URL}/login${fallbackReason}`;
+    const frontendBaseUrl = getFrontendBaseUrl(req);
+    return `${frontendBaseUrl}/login${fallbackReason}`;
   }
 }
 
 function buildFrontendAppRedirect(req, pathname = "/dashboard") {
   try {
-    const target = new URL(pathname, FRONTEND_URL);
+    const target = new URL(pathname, getFrontendBaseUrl(req));
     alignFrontendLoopbackAlias(target, req);
     return target.toString();
   } catch {
-    return `${FRONTEND_URL}${pathname}`;
+    return `${getFrontendBaseUrl(req)}${pathname}`;
   }
 }
 
@@ -393,12 +465,12 @@ function getOAuthConfigurationIssue(req) {
 
   try {
     const configured = new URL(GOOGLE_REDIRECT_URI);
-    const reqProtocol = req.protocol || "http";
-    const reqHost = req.get("host") || "";
-    const expectedOrigin = reqHost ? `${reqProtocol}://${reqHost}` : configured.origin;
+    const expectedOrigin = getRequestOrigin(req, configured.origin);
+    const normalizedConfiguredOrigin = normalizeOrigin(configured.origin);
+    const normalizedExpectedOrigin = normalizeOrigin(expectedOrigin);
 
     // This mismatch is a high-signal source of invalid_grant at token exchange.
-    if (configured.origin !== expectedOrigin) {
+    if (normalizedConfiguredOrigin !== normalizedExpectedOrigin) {
       return {
         status: 500,
         error: `GOOGLE_REDIRECT_URI origin (${configured.origin}) does not match current backend origin (${expectedOrigin}).`,
@@ -529,6 +601,9 @@ console.log("dotenv loaded files=", loadedEnvFiles.length ? loadedEnvFiles.join(
 console.log("oauthConfigured=", oauthConfigured);
 console.log("debugOauth=", DEBUG_OAUTH);
 console.log("devAuthEnabled=", DEV_AUTH_ENABLED);
+console.log("isServerlessRuntime=", isServerlessRuntime);
+console.log("dbFilePath=", DB_FILE_PATH);
+console.log("frontendUrlCandidates=", FRONTEND_URL_CANDIDATES.join(", "));
 console.log("allowedOrigins=", [...allowedOrigins].join(", "));
 console.log("oauthEnvSources=", oauthEnvKeySources);
 if (mixedOauthEnvSources) {
@@ -1017,7 +1092,8 @@ app.get("/api/auth/config", (req, res) => {
   return res.json({
     oauthConfigured,
     devFallbackEnabled: DEV_AUTH_ENABLED,
-    hasFrontendUrl: Boolean(FRONTEND_URL),
+    hasFrontendUrl: FRONTEND_URL_CANDIDATES.length > 0,
+    frontendUrls: FRONTEND_URL_CANDIDATES,
     oauthStartUrl,
     oauthWarning: mixedOauthEnvSources
       ? {
@@ -1039,10 +1115,14 @@ app.get("/api/auth/diagnostics", (req, res) => {
   return res.json({
     oauthConfigured,
     oauthCallbackHandlerVersion: OAUTH_CALLBACK_HANDLER_VERSION,
+    isServerlessRuntime,
     hasClientId: Boolean(GOOGLE_CLIENT_ID),
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,
-    frontendUrl: FRONTEND_URL ?? null,
+    frontendUrl: FRONTEND_URL || null,
+    frontendUrls: FRONTEND_URL_CANDIDATES,
+    allowedOrigins: [...allowedOrigins],
+    dbFilePath: DB_FILE_PATH,
     cookieConfigSummary: {
       sessionCookieName: SESSION_COOKIE_NAME,
       stateCookieName: STATE_COOKIE_NAME,
@@ -1061,11 +1141,15 @@ app.get("/api/debug/oauth", (req, res) => {
   return res.json({
     oauthConfigured,
     oauthCallbackHandlerVersion: OAUTH_CALLBACK_HANDLER_VERSION,
+    isServerlessRuntime,
     hasClientId: Boolean(GOOGLE_CLIENT_ID),
     hasClientSecret: Boolean(GOOGLE_CLIENT_SECRET),
     redirectUri: GOOGLE_REDIRECT_URI ?? null,
     oauthStartUrl: getOAuthStartUrl(),
-    frontendUrl: FRONTEND_URL ?? null,
+    frontendUrl: FRONTEND_URL || null,
+    frontendUrls: FRONTEND_URL_CANDIDATES,
+    allowedOrigins: [...allowedOrigins],
+    dbFilePath: DB_FILE_PATH,
     debugOauth: DEBUG_OAUTH,
     mixedOauthEnvSources,
     oauthEnvKeySources,
@@ -1332,16 +1416,29 @@ app.post("/api/essay/analyze", ESSAY_RATE_LIMIT, async (req, res) => {
   }
 });
 
-const port = Number(process.env.PORT || process.env.VITE_API_PORT || 4000);
-const server = app.listen(port, () => console.log(`API running on http://localhost:${port}`));
-
-server.on("error", (err) => {
-  if (err?.code === "EADDRINUSE") {
-    console.error(
-      `Port ${port} is already in use. Stop the other process or set PORT/VITE_API_PORT to an open port before running the API.`
-    );
-    process.exit(1);
+const isDirectRun = (() => {
+  if (!process.argv?.[1]) return false;
+  try {
+    return path.resolve(process.argv[1]) === __filename;
+  } catch {
+    return false;
   }
+})();
 
-  throw err;
-});
+if (isDirectRun) {
+  const port = Number(process.env.PORT || process.env.VITE_API_PORT || 4000);
+  const server = app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+
+  server.on("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `Port ${port} is already in use. Stop the other process or set PORT/VITE_API_PORT to an open port before running the API.`
+      );
+      process.exit(1);
+    }
+
+    throw err;
+  });
+}
+
+export default app;

@@ -1,0 +1,11 @@
+{
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/[...path].mjs": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
+    }
+  }
+}

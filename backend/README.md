@@ -19,7 +19,11 @@ Authentication (Google OAuth + session cookies)
   - GOOGLE_CLIENT_SECRET
   - GOOGLE_REDIRECT_URI (e.g., http://localhost:4000/api/auth/google/callback)
   - FRONTEND_URL (e.g., http://localhost:5173)
+  - FRONTEND_URLS (optional comma-separated additional allowed frontend origins)
   - SESSION_JWT_SECRET (random strong string)
+  - SESSION_COOKIE_SAMESITE (default `lax`; use `none` if frontend/backend are on different top-level domains)
+  - SESSION_COOKIE_SECURE (`true` in production when SameSite is `none`)
+  - DB_FILE_PATH (optional custom lowdb file path; serverless defaults to `/tmp/medadmit-db.json`)
 - OAuth endpoints:
   - GET /api/auth/google/start
   - GET /api/auth/google/callback
